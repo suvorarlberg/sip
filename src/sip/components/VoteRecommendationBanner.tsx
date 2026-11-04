@@ -1,10 +1,5 @@
 import React, { useState } from 'react';
 import {
-  CheckCircle,
-  XCircle,
-  MinusCircle,
-  HelpCircle,
-  Sparkles,
   Edit3,
   Send,
   EyeOff,
@@ -36,47 +31,32 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
     switch (type) {
       case 'JA':
         return {
-          bg: 'bg-gradient-to-r from-emerald-600 to-green-700',
-          border: 'border-emerald-400',
-          badgeBg: 'bg-white text-emerald-900',
-          icon: <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white shrink-0" />,
+          emoji: '✅',
           label: 'JA',
           title: 'ABSTIMMUNGSEMPFEHLUNG: JA',
         };
       case 'NEIN':
         return {
-          bg: 'bg-gradient-to-r from-rose-600 to-red-700',
-          border: 'border-rose-400',
-          badgeBg: 'bg-white text-rose-900',
-          icon: <XCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white shrink-0" />,
+          emoji: '❌',
           label: 'NEIN',
           title: 'ABSTIMMUNGSEMPFEHLUNG: NEIN',
         };
       case 'ENTHALTUNG':
         return {
-          bg: 'bg-gradient-to-r from-amber-600 to-yellow-700',
-          border: 'border-amber-400',
-          badgeBg: 'bg-white text-amber-900',
-          icon: <MinusCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white shrink-0" />,
+          emoji: '⚠️',
           label: 'ENTHALTUNG',
           title: 'ABSTIMMUNGSEMPFEHLUNG: ENTHALTUNG',
         };
       case 'FREI':
         return {
-          bg: 'bg-gradient-to-r from-sky-600 to-blue-700',
-          border: 'border-sky-400',
-          badgeBg: 'bg-white text-sky-900',
-          icon: <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-white shrink-0" />,
+          emoji: '⚖️',
           label: 'FREIE WAHL',
           title: 'FREIE ABSTIMMUNG / GEWISSENSENTSCHEID',
         };
       case 'KEINE':
       default:
         return {
-          bg: 'bg-slate-800',
-          border: 'border-slate-700',
-          badgeBg: 'bg-slate-700 text-slate-200',
-          icon: <HelpCircle className="w-8 h-8 sm:w-10 sm:h-10 text-slate-400 shrink-0" />,
+          emoji: '⏳',
           label: 'NOCH OFFEN',
           title: 'KEINE ABSTIMMUNGSEMPFEHLUNG',
         };
@@ -133,23 +113,19 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
   return (
     <div className="w-full mb-6">
       <div
-        className={`relative overflow-hidden rounded-2xl border-2 ${currentStyle.border} ${currentStyle.bg} p-4 sm:p-5 text-white shadow-xl shadow-black/30 transition-all duration-300`}
+        className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5 text-white shadow-xl transition-all duration-300"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          {/* Left: Vote icon & Decision */}
+          {/* Left: Discreet Vote Decision (Text + Emoji only) */}
           <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
-            <div className="p-2 sm:p-2.5 rounded-2xl bg-black/20 backdrop-blur border border-white/20">
-              {currentStyle.icon}
-            </div>
-
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1">
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/30 border border-white/20">
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                   {isPublished ? 'Offizielle Abstimmungsempfehlung' : 'Entwurf (Noch nicht gesendet)'}
                 </span>
 
                 {isPublished && (
-                  <span className="text-xs text-white/80">
+                  <span className="text-xs text-slate-400">
                     {new Date(recommendation.updatedAt).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -171,19 +147,17 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
                 )}
               </div>
 
-              <div className="flex items-baseline gap-3">
-                <span className="text-xs sm:text-sm font-semibold opacity-90">
+              <div className="flex items-baseline gap-2.5">
+                <span className="text-xs sm:text-sm font-semibold text-slate-400">
                   {isPublished ? 'Empfehlung:' : 'Geplante Empfehlung:'}
                 </span>
-                <span
-                  className={`text-2xl sm:text-3xl font-black tracking-tight px-3 py-0.5 rounded-xl shadow-md ${currentStyle.badgeBg}`}
-                >
-                  {currentStyle.label}
+                <span className="text-base sm:text-lg font-bold tracking-tight text-white">
+                  {currentStyle.emoji} {currentStyle.label}
                 </span>
               </div>
 
               {recommendation.note && (
-                <p className="mt-1 text-xs sm:text-sm text-white/95 font-medium leading-relaxed max-w-2xl bg-black/15 p-2 rounded-lg border border-white/10">
+                <p className="mt-1.5 text-xs sm:text-sm text-slate-200 font-medium leading-relaxed max-w-2xl bg-slate-950/60 p-2 rounded-lg border border-slate-800">
                   💬 {recommendation.note}
                 </p>
               )}

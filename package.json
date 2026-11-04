@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "eventsource": "^5.1.4",
     "lucide-react": "^0.475.0",
     "mammoth": "^1.13.0",
     "pdfjs-dist": "^6.4.299",
