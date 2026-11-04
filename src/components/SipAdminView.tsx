@@ -74,6 +74,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const [expirationPreset, setExpirationPreset] = useState<'never' | '2h' | '6h' | '12h' | '24h' | '48h' | 'custom'>('12h');
   const [customExpiresAt, setCustomExpiresAt] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingPasswordUser, setEditingPasswordUser] = useState<string | null>(null);
+  const [editingPasswordValue, setEditingPasswordValue] = useState('');
 
   // Settings state (General)
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
@@ -337,6 +339,25 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     });
     onUpdateSettings({ ...settings, memberAccounts: updated });
     showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
+  }
+
+  function handleUpdateUserPassword(username: string) {
+    const cleanPass = editingPasswordValue.trim();
+    if (!cleanPass) return;
+
+    const target = settings.memberAccounts.find((a) => a.username === username);
+    const updated = settings.memberAccounts.map((acc) =>
+      acc.username === username ? { ...acc, password: cleanPass } : acc
+    );
+
+    onUpdateSettings({
+      ...settings,
+      memberAccounts: updated,
+    });
+
+    setEditingPasswordUser(null);
+    setEditingPasswordValue('');
+    showBanner(`Passwort für „${target?.name || username}“ wurde aktualisiert!`);
   }
 
   function handleCopyCredentials(acc: MemberAccount) {
@@ -644,11 +665,65 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                   </div>
 
                   {/* Password & Expiration Box */}
-                  <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs gap-2">
-                    <div className="flex items-center gap-1.5 font-mono text-slate-300 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                      <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>{acc.password}</span>
-                    </div>
+                  <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs gap-2 flex-wrap">
+                    {editingPasswordUser === acc.username ? (
+                      <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                        <input
+                          type="text"
+                          value={editingPasswordValue}
+                          onChange={(e) => setEditingPasswordValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleUpdateUserPassword(acc.username);
+                            if (e.key === 'Escape') setEditingPasswordUser(null);
+                          }}
+                          autoFocus
+                          placeholder="Neues Passwort..."
+                          className="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-sky-500 text-white font-mono text-xs focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEditingPasswordValue(generateRandomMemberPassword())}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 transition cursor-pointer shrink-0"
+                          title="Zufälliges Passwort generieren"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateUserPassword(acc.username)}
+                          className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition cursor-pointer shrink-0"
+                          title="Passwort speichern"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingPasswordUser(null)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+                          title="Abbrechen"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 font-mono text-slate-300 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                          <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>{acc.password}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPasswordUser(acc.username);
+                            setEditingPasswordValue(acc.password);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold transition cursor-pointer"
+                          title="Passwort ändern"
+                        >
+                          Ändern
+                        </button>
+                      </div>
+                    )}
 
                     {acc.expiresAt ? (
                       <div
