@@ -33,12 +33,20 @@ import {
   ChevronRight,
   History,
   Search,
+  Megaphone,
+  Bookmark,
+  Send,
+  Edit3,
+  Trash2,
+  EyeOff,
 } from 'lucide-react';
 import { AppSettings, MemberAccount } from '../../types';
 import {
   ANTRAG_TYPE_CONFIG,
   AntragType,
+  DirectMessagePriority,
   SipAntrag,
+  SipDirectMessage,
   SipNotification,
   SipSession,
   VoteType,
@@ -47,6 +55,7 @@ import { sipRealtime } from '../sipRealtime';
 import { VoteRecommendationBanner } from './VoteRecommendationBanner';
 import { AntragCard } from './AntragCard';
 import { BlurryMotionModal } from './BlurryMotionModal';
+import { DirectMessageOverlayModal, DirectMessageComposerModal } from './DirectMessageModal';
 import { NewAntragModal } from './NewAntragModal';
 import { EditAntragModal } from './EditAntragModal';
 import { MotionParserModal } from './MotionParserModal';
@@ -313,6 +322,9 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 
   // Modals & Popups
   const [activeBlurAntrag, setActiveBlurAntrag] = useState<SipAntrag | null>(null);
+  const [activeDirectMessagePopup, setActiveDirectMessagePopup] = useState<SipDirectMessage | null>(null);
+  const [showDirectMessageModal, setShowDirectMessageModal] = useState(false);
+  const [editingDirectMessageDraft, setEditingDirectMessageDraft] = useState<SipDirectMessage | null>(null);
   const [confirmActivateAntrag, setConfirmActivateAntrag] = useState<SipAntrag | null>(null);
   const [showNewAntragModal, setShowNewAntragModal] = useState(false);
   const [newAntragPreset, setNewAntragPreset] = useState<{
@@ -334,12 +346,42 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 
   const currentUserName = currentMember?.name || (isAdminUnlocked ? 'Strategieführung' : 'Gast-Mitglied');
 
+  function getDismissedMessageKeys(): Set<string> {
+    try {
+      const raw = localStorage.getItem('sip_dismissed_direct_messages_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return new Set(parsed);
+      }
+    } catch (e) {}
+    return new Set();
+  }
+
+  function markDirectMessageDismissed(msg: SipDirectMessage) {
+    try {
+      const set = getDismissedMessageKeys();
+      const key = `${msg.id}_${msg.publishedAt || msg.updatedAt}`;
+      set.add(key);
+      const arr = Array.from(set).slice(-50);
+      localStorage.setItem('sip_dismissed_direct_messages_v1', JSON.stringify(arr));
+    } catch (e) {}
+  }
+
   // Initialize Realtime & Pocketbase
   useEffect(() => {
     sipRealtime.init(settings);
 
     const unsubSession = sipRealtime.subscribe((newSession) => {
       setSession(newSession);
+      if (newSession.activeDirectMessage) {
+        const key = `${newSession.activeDirectMessage.id}_${newSession.activeDirectMessage.publishedAt || newSession.activeDirectMessage.updatedAt}`;
+        const dismissed = getDismissedMessageKeys();
+        if (!dismissed.has(key)) {
+          setActiveDirectMessagePopup(newSession.activeDirectMessage);
+        }
+      } else {
+        setActiveDirectMessagePopup(null);
+      }
     });
 
     const unsubBlur = sipRealtime.onBlurPopup((antrag) => {
@@ -347,6 +389,14 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
       // NIEMALS auf dem Bildschirm der Strategieführung!
       if (!isStrategieLeaderRef.current) {
         setActiveBlurAntrag(antrag);
+      }
+    });
+
+    const unsubDirectMsg = sipRealtime.onDirectMessagePopup((msg) => {
+      const key = `${msg.id}_${msg.publishedAt || msg.updatedAt}`;
+      const dismissed = getDismissedMessageKeys();
+      if (!dismissed.has(key)) {
+        setActiveDirectMessagePopup(msg);
       }
     });
 
@@ -363,6 +413,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
       if (toastTimer) clearTimeout(toastTimer);
       unsubSession();
       unsubBlur();
+      unsubDirectMsg();
       unsubNotif();
     };
   }, [settings]);
@@ -651,6 +702,41 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     sipRealtime.toggleMemeReaction(memeId, emoji, currentUserName, settings);
   }
 
+  const directMessages = session.directMessages || [];
+  const draftDirectMessages = directMessages.filter((m) => m.status === 'draft');
+
+  async function handleSaveDirectMessageDraft(data: {
+    id?: string;
+    title: string;
+    content: string;
+    author: string;
+    priority: DirectMessagePriority;
+  }) {
+    await sipRealtime.saveDirectMessageDraft(data, settings);
+  }
+
+  async function handlePublishDirectMessage(data: {
+    id?: string;
+    title: string;
+    content: string;
+    author: string;
+    priority: DirectMessagePriority;
+  }) {
+    await sipRealtime.publishDirectMessage(data, settings);
+  }
+
+  async function handlePublishExistingDirectMessage(messageId: string) {
+    await sipRealtime.publishExistingDirectMessage(messageId, currentUserName, settings);
+  }
+
+  async function handleDeleteDirectMessage(messageId: string) {
+    await sipRealtime.deleteDirectMessage(messageId, settings);
+  }
+
+  async function handleClearActiveDirectMessage() {
+    await sipRealtime.clearActiveDirectMessage(settings);
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 space-y-6">
       {/* Toast Notification for Claims / Recommendations / Submissions */}
@@ -708,6 +794,17 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Vollbild-Overlay für Direktnachrichten der Strategieführung auf allen Geräten */}
+      {activeDirectMessagePopup && (
+        <DirectMessageOverlayModal
+          message={activeDirectMessagePopup}
+          onDismiss={() => {
+            markDirectMessageDismissed(activeDirectMessagePopup);
+            setActiveDirectMessagePopup(null);
+          }}
+        />
       )}
 
       {/* Blurry Screen Modal: NUR für Mitglieder-Accounts, NIEMALS für die Strategieführung */}
@@ -839,6 +936,24 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
           onClose={() => setShowParserModal(false)}
           onImport={handleImportAntraege}
           initialDriveUrl={session.driveFolderUrl}
+        />
+      )}
+
+      {showDirectMessageModal && (
+        <DirectMessageComposerModal
+          currentUserName={currentUserName}
+          directMessages={directMessages}
+          activeDirectMessage={session.activeDirectMessage || null}
+          initialDraft={editingDirectMessageDraft}
+          onClose={() => {
+            setShowDirectMessageModal(false);
+            setEditingDirectMessageDraft(null);
+          }}
+          onSaveDraft={handleSaveDirectMessageDraft}
+          onPublishNow={handlePublishDirectMessage}
+          onPublishExisting={handlePublishExistingDirectMessage}
+          onDeleteMessage={handleDeleteDirectMessage}
+          onClearActiveOverlay={handleClearActiveDirectMessage}
         />
       )}
 
@@ -1425,9 +1540,26 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                 </div>
               )}
 
-              {/* Action Row: Create Motion & Import Button */}
+              {/* Action Row: Direct Message, Create Motion & Import Button */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDirectMessageDraft(null);
+                      setShowDirectMessageModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
+                  >
+                    <Megaphone className="w-4 h-4" />
+                    <span>Direktnachricht schreiben</span>
+                    {draftDirectMessages.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-slate-950 text-amber-300 text-[10px] font-black">
+                        {draftDirectMessages.length}
+                      </span>
+                    )}
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -1454,6 +1586,110 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                   Zeige {hauptAntraege.length} von {session.antraege.filter((a) => a.type === 'HAUPTANTRAG').length} Hauptanträgen (Strategieführungs-Ansicht)
                 </div>
               </div>
+
+              {/* Vorgeschriebene Direktnachrichten (Entwürfe) & Aktive Direktnachricht Schnellzugriff */}
+              {(draftDirectMessages.length > 0 || session.activeDirectMessage) && (
+                <div className="bg-slate-900/90 border border-amber-500/40 rounded-2xl p-3.5 sm:p-4 space-y-3 shadow-lg">
+                  {session.activeDirectMessage && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            ● Live gesendet
+                          </span>
+                          <span className="text-xs font-bold text-white truncate">
+                            {session.activeDirectMessage.title}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 mt-1 line-clamp-1">
+                          {session.activeDirectMessage.content}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handlePublishExistingDirectMessage(session.activeDirectMessage!.id)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer transition"
+                          title="Overlay erneut auf allen Geräten einblenden"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Erneut einblenden</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearActiveDirectMessage}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 text-xs font-semibold cursor-pointer transition"
+                          title="Aktives Overlay beenden"
+                        >
+                          <EyeOff className="w-3.5 h-3.5" />
+                          <span>Beenden</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {draftDirectMessages.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                          <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Vorgeschriebene Direktnachrichten ({draftDirectMessages.length})</span>
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          Bereit zur Veröffentlichung
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {draftDirectMessages.map((draft) => (
+                          <div
+                            key={draft.id}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-500/40 transition"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-bold text-white truncate">
+                                {draft.title}
+                              </div>
+                              <p className="text-xs text-slate-400 line-clamp-1">
+                                {draft.content}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                              <button
+                                type="button"
+                                onClick={() => handlePublishExistingDirectMessage(draft.id)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition"
+                                title="Jetzt als Overlay auf allen Geräten veröffentlichen"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Jetzt veröffentlichen</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDirectMessageDraft(draft);
+                                  setShowDirectMessageModal(true);
+                                }}
+                                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition"
+                                title="Entwurf bearbeiten"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDirectMessage(draft.id)}
+                                className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 cursor-pointer transition"
+                                title="Entwurf löschen"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Filter Bar */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">

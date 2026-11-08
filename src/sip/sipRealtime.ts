@@ -6,6 +6,8 @@ import {
   SipSession,
   VoteRecommendation,
   SipActivityLogEntry,
+  SipDirectMessage,
+  DirectMessagePriority,
 } from './types';
 import { AppSettings, SipStateRecord } from '../types';
 import {
@@ -53,6 +55,8 @@ export interface SipLiveStateOverlay {
   customAntraege: SipAntrag[];
   deletedAntragIds: string[];
   memes: SipMeme[];
+  directMessages?: SipDirectMessage[];
+  activeDirectMessage?: SipDirectMessage | null;
   activityLog: SipActivityLogEntry[];
   updatedAt: string;
 }
@@ -67,7 +71,9 @@ export type SipRealtimeMessage =
   | { type: 'ANTRAG_SUBMITTED'; antrag: SipAntrag; updatedAt?: string }
   | { type: 'ANTRAG_APPROVED'; antrag: SipAntrag; updatedAt?: string }
   | { type: 'ANTRAG_DECIDED'; antragId: string; decision: 'ANGENOMMEN' | 'ABGELEHNT'; decidedAt: string }
-  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string };
+  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string }
+  | { type: 'DIRECT_MESSAGE_PUBLISHED'; message: SipDirectMessage; directMessages: SipDirectMessage[]; updatedAt?: string }
+  | { type: 'DIRECT_MESSAGE_UPDATED'; directMessages: SipDirectMessage[]; activeDirectMessage: SipDirectMessage | null; updatedAt?: string };
 
 class SipRealtimeService {
   private localChannel: BroadcastChannel | null = null;
@@ -77,6 +83,7 @@ class SipRealtimeService {
   private configListeners: Set<(payload: any, recordUpdated?: string) => void> = new Set();
   private notificationListeners: Set<(notif: SipNotification) => void> = new Set();
   private activeBlurPopupListeners: Set<(antrag: SipAntrag) => void> = new Set();
+  private directMessagePopupListeners: Set<(msg: SipDirectMessage) => void> = new Set();
   private recentNotificationSignatures: Map<string, number> = new Map();
   private isInitialized = false;
   private isPollingCloud = false;
@@ -238,6 +245,8 @@ class SipRealtimeService {
       customAntraege,
       deletedAntragIds: Array.from(this.deletedAntragIds),
       memes: session.memes || [],
+      directMessages: session.directMessages || [],
+      activeDirectMessage: session.activeDirectMessage || null,
       activityLog: (session.activityLog || []).slice(0, 30),
       updatedAt: session.updatedAt,
     };
@@ -319,6 +328,13 @@ class SipRealtimeService {
       voteRecommendation: overlay.voteRecommendation || baseSession.voteRecommendation,
       antraege: combinedAntraege,
       memes: Array.isArray(overlay.memes) ? overlay.memes : baseSession.memes,
+      directMessages: Array.isArray(overlay.directMessages)
+        ? overlay.directMessages
+        : baseSession.directMessages || [],
+      activeDirectMessage:
+        overlay.activeDirectMessage !== undefined
+          ? overlay.activeDirectMessage
+          : baseSession.activeDirectMessage || null,
       activityLog:
         Array.isArray(overlay.activityLog) && overlay.activityLog.length > 0
           ? overlay.activityLog
@@ -420,6 +436,8 @@ class SipRealtimeService {
         },
         antraege: session.antraege || [],
         memes: session.memes || [],
+        directMessages: session.directMessages || [],
+        activeDirectMessage: session.activeDirectMessage || null,
         activityLog: session.activityLog || [],
         updatedAt: session.updatedAt || new Date().toISOString(),
       };
@@ -476,6 +494,8 @@ class SipRealtimeService {
       voteRecommendation: session.voteRecommendation || DEFAULT_SIP_SESSION.voteRecommendation,
       antraege: [...customAntraege, ...refreshedPreFabs],
       memes: Array.isArray(session.memes) ? session.memes.filter((m) => m.id !== 'meme_1') : [],
+      directMessages: Array.isArray(session.directMessages) ? session.directMessages : [],
+      activeDirectMessage: session.activeDirectMessage || null,
     };
   }
 
@@ -494,6 +514,15 @@ class SipRealtimeService {
     const prevActiveId = this.currentSession.activeAntragId;
     const newActiveId = merged.activeAntragId;
     const isNewActive = Boolean(newActiveId && newActiveId !== prevActiveId);
+
+    const prevDirectMsg = this.currentSession.activeDirectMessage;
+    const newDirectMsg = merged.activeDirectMessage;
+    const isNewDirectMsg = Boolean(
+      newDirectMsg &&
+        (!prevDirectMsg ||
+          prevDirectMsg.id !== newDirectMsg.id ||
+          prevDirectMsg.publishedAt !== newDirectMsg.publishedAt)
+    );
 
     if (this.hasLoadedCloudSession && this.currentSession.antraege) {
       merged.antraege.forEach((newA) => {
@@ -585,6 +614,18 @@ class SipRealtimeService {
     this.hasLoadedCloudSession = true;
     this.currentSession = merged;
     this.notify();
+
+    if (isNewDirectMsg && newDirectMsg) {
+      this.triggerDirectMessagePopup(newDirectMsg);
+      const dmNotif: SipNotification = {
+        id: `dm_${newDirectMsg.id}_${newDirectMsg.publishedAt || Date.now()}`,
+        title: `📢 ${newDirectMsg.title || 'Direktnachricht der Strategieführung'}`,
+        message: newDirectMsg.content,
+        type: 'system',
+        timestamp: new Date().toISOString(),
+      };
+      this.triggerNotification(dmNotif);
+    }
 
     if (isNewActive && newActiveId) {
       const newlyActiveAntrag = merged.antraege.find((a) => a.id === newActiveId);
@@ -845,6 +886,11 @@ class SipRealtimeService {
     return () => this.activeBlurPopupListeners.delete(cb);
   }
 
+  public onDirectMessagePopup(cb: (msg: SipDirectMessage) => void): () => void {
+    this.directMessagePopupListeners.add(cb);
+    return () => this.directMessagePopupListeners.delete(cb);
+  }
+
   private saveToStorage() {
     try {
       const overlay = this.buildLiveOverlay(this.currentSession);
@@ -920,6 +966,16 @@ class SipRealtimeService {
         cb(antrag);
       } catch (err) {
         console.error('Error in blur popup listener:', err);
+      }
+    });
+  }
+
+  private triggerDirectMessagePopup(msg: SipDirectMessage) {
+    this.directMessagePopupListeners.forEach((cb) => {
+      try {
+        cb(msg);
+      } catch (err) {
+        console.error('Error in direct message popup listener:', err);
       }
     });
   }
@@ -1118,7 +1174,259 @@ class SipRealtimeService {
         }
         break;
       }
+
+      case 'DIRECT_MESSAGE_PUBLISHED': {
+        const ts = msg.updatedAt || msg.message.publishedAt || this.nextTimestamp();
+        this.currentSession = {
+          ...this.currentSession,
+          directMessages: msg.directMessages,
+          activeDirectMessage: msg.message,
+          updatedAt: ts,
+        };
+        this.notify();
+        this.triggerDirectMessagePopup(msg.message);
+        const dmNotif: SipNotification = {
+          id: `dm_${msg.message.id}_${msg.message.publishedAt || Date.now()}`,
+          title: `📢 ${msg.message.title || 'Direktnachricht der Strategieführung'}`,
+          message: msg.message.content,
+          type: 'system',
+          timestamp: new Date().toISOString(),
+        };
+        this.triggerNotification(dmNotif);
+        break;
+      }
+
+      case 'DIRECT_MESSAGE_UPDATED': {
+        const ts = msg.updatedAt || this.nextTimestamp();
+        this.currentSession = {
+          ...this.currentSession,
+          directMessages: msg.directMessages,
+          activeDirectMessage: msg.activeDirectMessage,
+          updatedAt: ts,
+        };
+        this.notify();
+        break;
+      }
     }
+  }
+
+  public async saveDirectMessageDraft(
+    data: {
+      id?: string;
+      title: string;
+      content: string;
+      author: string;
+      priority: DirectMessagePriority;
+    },
+    settings?: AppSettings
+  ): Promise<SipDirectMessage> {
+    this.lastLocalMutationAt = Date.now();
+    const ts = this.nextTimestamp();
+    const existingList = this.currentSession.directMessages || [];
+
+    let savedMsg: SipDirectMessage;
+    let nextList: SipDirectMessage[];
+
+    if (data.id && existingList.some((m) => m.id === data.id)) {
+      savedMsg = {
+        ...existingList.find((m) => m.id === data.id)!,
+        title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
+        content: data.content.trim(),
+        author: data.author,
+        priority: data.priority,
+        status: 'draft',
+        updatedAt: ts,
+      };
+      nextList = existingList.map((m) => (m.id === data.id ? savedMsg : m));
+    } else {
+      savedMsg = {
+        id: `dm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
+        content: data.content.trim(),
+        author: data.author,
+        priority: data.priority,
+        status: 'draft',
+        createdAt: ts,
+        updatedAt: ts,
+        publishedAt: null,
+      };
+      nextList = [savedMsg, ...existingList];
+    }
+
+    this.logActivity({
+      action: 'DIRECT_MESSAGE_DRAFTED',
+      performedBy: data.author,
+      details: `Direktnachricht als Entwurf gespeichert: "${savedMsg.title}"`,
+    });
+
+    this.currentSession = {
+      ...this.currentSession,
+      directMessages: nextList,
+      updatedAt: ts,
+    };
+    this.saveToStorage();
+    this.notify();
+
+    this.broadcastMessage(
+      {
+        type: 'DIRECT_MESSAGE_UPDATED',
+        directMessages: nextList,
+        activeDirectMessage: this.currentSession.activeDirectMessage || null,
+        updatedAt: ts,
+      },
+      settings
+    );
+
+    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    return savedMsg;
+  }
+
+  public async publishDirectMessage(
+    data: {
+      id?: string;
+      title: string;
+      content: string;
+      author: string;
+      priority: DirectMessagePriority;
+    },
+    settings?: AppSettings
+  ): Promise<SipDirectMessage> {
+    this.lastLocalMutationAt = Date.now();
+    const ts = this.nextTimestamp();
+    const existingList = this.currentSession.directMessages || [];
+
+    let publishedMsg: SipDirectMessage;
+    let nextList: SipDirectMessage[];
+
+    if (data.id && existingList.some((m) => m.id === data.id)) {
+      publishedMsg = {
+        ...existingList.find((m) => m.id === data.id)!,
+        title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
+        content: data.content.trim(),
+        author: data.author,
+        priority: data.priority,
+        status: 'published',
+        updatedAt: ts,
+        publishedAt: ts,
+      };
+      nextList = existingList.map((m) => (m.id === data.id ? publishedMsg : m));
+    } else {
+      publishedMsg = {
+        id: `dm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
+        content: data.content.trim(),
+        author: data.author,
+        priority: data.priority,
+        status: 'published',
+        createdAt: ts,
+        updatedAt: ts,
+        publishedAt: ts,
+      };
+      nextList = [publishedMsg, ...existingList];
+    }
+
+    this.logActivity({
+      action: 'DIRECT_MESSAGE_SENT',
+      performedBy: data.author,
+      details: `Direktnachricht an alle Geräte gesendet: "${publishedMsg.title}"`,
+    });
+
+    this.currentSession = {
+      ...this.currentSession,
+      directMessages: nextList,
+      activeDirectMessage: publishedMsg,
+      updatedAt: ts,
+    };
+    this.saveToStorage();
+    this.notify();
+    this.triggerDirectMessagePopup(publishedMsg);
+
+    this.broadcastMessage(
+      {
+        type: 'DIRECT_MESSAGE_PUBLISHED',
+        message: publishedMsg,
+        directMessages: nextList,
+        updatedAt: ts,
+      },
+      settings
+    );
+
+    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    return publishedMsg;
+  }
+
+  public async publishExistingDirectMessage(
+    messageId: string,
+    author: string,
+    settings?: AppSettings
+  ): Promise<SipDirectMessage | null> {
+    const existing = (this.currentSession.directMessages || []).find((m) => m.id === messageId);
+    if (!existing) return null;
+    return this.publishDirectMessage(
+      {
+        id: existing.id,
+        title: existing.title,
+        content: existing.content,
+        author: author || existing.author,
+        priority: existing.priority,
+      },
+      settings
+    );
+  }
+
+  public async deleteDirectMessage(messageId: string, settings?: AppSettings): Promise<void> {
+    this.lastLocalMutationAt = Date.now();
+    const ts = this.nextTimestamp();
+    const nextList = (this.currentSession.directMessages || []).filter((m) => m.id !== messageId);
+    const nextActive =
+      this.currentSession.activeDirectMessage?.id === messageId
+        ? null
+        : this.currentSession.activeDirectMessage || null;
+
+    this.currentSession = {
+      ...this.currentSession,
+      directMessages: nextList,
+      activeDirectMessage: nextActive,
+      updatedAt: ts,
+    };
+    this.saveToStorage();
+    this.notify();
+
+    this.broadcastMessage(
+      {
+        type: 'DIRECT_MESSAGE_UPDATED',
+        directMessages: nextList,
+        activeDirectMessage: nextActive,
+        updatedAt: ts,
+      },
+      settings
+    );
+
+    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+  }
+
+  public async clearActiveDirectMessage(settings?: AppSettings): Promise<void> {
+    this.lastLocalMutationAt = Date.now();
+    const ts = this.nextTimestamp();
+    this.currentSession = {
+      ...this.currentSession,
+      activeDirectMessage: null,
+      updatedAt: ts,
+    };
+    this.saveToStorage();
+    this.notify();
+
+    this.broadcastMessage(
+      {
+        type: 'DIRECT_MESSAGE_UPDATED',
+        directMessages: this.currentSession.directMessages || [],
+        activeDirectMessage: null,
+        updatedAt: ts,
+      },
+      settings
+    );
+
+    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
   }
 
   public logActivity(entry: Omit<SipActivityLogEntry, 'id' | 'timestamp'>) {

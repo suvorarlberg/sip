@@ -61,6 +61,20 @@ export interface SipMeme {
   reactions: Record<string, string[]>; // emoji -> array of usernames
 }
 
+export type DirectMessagePriority = 'info' | 'important' | 'urgent';
+
+export interface SipDirectMessage {
+  id: string;
+  title: string;
+  content: string;
+  author: string;
+  priority: DirectMessagePriority;
+  status: 'draft' | 'published';
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string | null;
+}
+
 export interface SipActivityLogEntry {
   id: string;
   timestamp: string;
@@ -80,7 +94,9 @@ export interface SipActivityLogEntry {
     | 'VOTE_REC_SET'
     | 'MEME_ADDED'
     | 'SESSION_ARCHIVED'
-    | 'NOTE_UPDATED';
+    | 'NOTE_UPDATED'
+    | 'DIRECT_MESSAGE_SENT'
+    | 'DIRECT_MESSAGE_DRAFTED';
   antragId?: string;
   antragTitle?: string;
   details: string;
@@ -105,6 +121,8 @@ export interface SipSession {
   voteRecommendation: VoteRecommendation;
   antraege: SipAntrag[];
   memes: SipMeme[];
+  directMessages?: SipDirectMessage[];
+  activeDirectMessage?: SipDirectMessage | null;
   activityLog?: SipActivityLogEntry[];
   updatedAt: string;
 }
@@ -187,6 +205,8 @@ export const DEFAULT_SIP_SESSION: SipSession = {
   },
   antraege: REAL_SIP_ANTRAEGE,
   memes: [],
+  directMessages: [],
+  activeDirectMessage: null,
   activityLog: [],
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
