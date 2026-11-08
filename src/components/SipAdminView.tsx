@@ -65,14 +65,14 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     initial2FAVerified ? 'settings' : 'users'
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'STRATEGIE' | 'MEMBER' | 'EXTERNAL' | 'EXPIRED'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'STRATEGIE' | 'MEMBER' | 'INTERNAL' | 'EXTERNAL' | 'EXPIRED'>('ALL');
 
   // Modal für neuen Zugang
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState(generateRandomMemberPassword());
-  const [newRole, setNewRole] = useState<'gast' | 'mitglied' | 'presse' | 'strategie'>('gast');
+  const [newRole, setNewRole] = useState<'gast' | 'mitglied' | 'strategie'>('gast');
   const [expirationPreset, setExpirationPreset] = useState<'never' | '2h' | '6h' | '12h' | '24h' | '48h' | 'custom'>('12h');
   const [customExpiresAt, setCustomExpiresAt] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -234,6 +234,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
       if (roleFilter === 'STRATEGIE' && acc.role !== 'strategie') return false;
       if (roleFilter === 'MEMBER' && (acc.isExternal || acc.role === 'strategie')) return false;
+      if (roleFilter === 'INTERNAL' && acc.role !== 'mitglied') return false; 
       if (roleFilter === 'EXTERNAL' && !acc.isExternal) return false;
       if (roleFilter === 'EXPIRED' && !isExp) return false;
 
@@ -272,7 +273,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     let cleanUser = newUsername.trim();
     if (!cleanUser) {
       cleanUser =
-        cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '.') +
+        cleanName.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '.') +
         (newRole === 'gast' ? '@gast.sip' : '@schuelerunion.at');
     }
 
@@ -283,7 +284,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       username: cleanUser,
       password: newPassword.trim() || generateRandomMemberPassword(),
       role: newRole,
-      isExternal: newRole === 'gast' || newRole === 'presse',
+      isExternal: newRole === 'gast',
+      isInternal: newRole === 'mitglied',
       expiresAt,
       createdAt: new Date().toISOString(),
     };
@@ -597,7 +599,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Person nach Name oder Benutzername suchen..."
+                placeholder="Person suchen..."
                 className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-sky-500"
               />
             </div>
@@ -622,6 +624,16 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               >
                 <Star className="w-3 h-3 fill-current" />
                 <span>Strategieführung ({settings.memberAccounts.filter((a) => a.role === 'strategie').length})</span>
+              </button>
+
+                 <button
+                type="button"
+                onClick={() => setRoleFilter('INTERNAL')}
+                className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer ${
+                  roleFilter === 'INTERNAL' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                Reguläre Mitglieder ({settings.memberAccounts.filter((a) => a.role === 'mitglied').length})
               </button>
 
               <button
@@ -1445,14 +1457,13 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 <select
                   value={newRole}
                   onChange={(e) =>
-                    setNewRole(e.target.value as 'gast' | 'mitglied' | 'presse' | 'strategie')
+                    setNewRole(e.target.value as 'gast' | 'mitglied' | 'strategie')
                   }
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
                   <option value="gast">Externer Gast (mit Ablaufzeit)</option>
                   <option value="mitglied">Reguläres SiP-Mitglied</option>
                   <option value="strategie">⭐ Strategieführung (Volle Leitungsrechte)</option>
-                  <option value="presse">Presse / Beobachter</option>
                 </select>
               </div>
 

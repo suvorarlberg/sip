@@ -142,7 +142,7 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
                         : 'bg-amber-500/20 text-amber-200 border border-amber-400/40'
                     }`}
                   >
-                    {isPublished ? '● Live an alle übertragen' : '⏳ Für Mitglieder noch unsichtbar'}
+                    {isPublished ? '● an alle übertragen' : '⏳ Für Mitglieder noch unsichtbar'}
                   </span>
                 )}
               </div>
@@ -205,7 +205,7 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
             className="mt-4 pt-4 border-t border-white/20 bg-black/30 p-4 rounded-2xl space-y-3"
           >
             <div className="text-xs font-bold uppercase tracking-wider text-white">
-              Abstimmungsempfehlung festlegen & live an alle Mitglieder übertragen:
+              Abstimmungsempfehlung festlegen & an alle Mitglieder übertragen:
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -257,7 +257,7 @@ export const VoteRecommendationBanner: React.FC<VoteRecommendationBannerProps> =
                 className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-white text-slate-950 font-black text-xs sm:text-sm hover:bg-slate-100 transition shadow-lg cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>Jetzt live an alle senden</span>
+                <span>Jetzt an alle senden</span>
               </button>
             </div>
           </form>

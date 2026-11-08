@@ -1022,11 +1022,6 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-sky-400 uppercase tracking-wider">
-                SiP Live-Tool
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-semibold text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                Live Sync aktiv
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white">
@@ -1100,7 +1095,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
             {isStrategieLeader ? (
               <>
                 <ShieldCheck className="w-4 h-4 text-amber-400" />
-                <span>Strategieführung (Admin)</span>
+                <span>Strategieführung</span>
               </>
             ) : (
               <>
@@ -1616,7 +1611,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                 </div>
 
                 <div className="text-xs text-slate-400 font-medium">
-                  Zeige {hauptAntraege.length} von {session.antraege.filter((a) => a.type === 'HAUPTANTRAG').length} Hauptanträgen (Strategieführungs-Ansicht)
+                  {hauptAntraege.length} von {session.antraege.filter((a) => a.type === 'HAUPTANTRAG').length} Hauptanträge
                 </div>
               </div>
 
@@ -1628,7 +1623,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                            ● Live gesendet
+                            ● gesendet
                           </span>
                           <span className="text-xs font-bold text-white truncate">
                             {session.activeDirectMessage.title}
@@ -1832,13 +1827,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                 </div>
               )}
 
-              {/* Hint Bar for Leadership */}
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400">
-                <Play className="w-3.5 h-3.5 text-sky-400" />
-                <span>
-                  <strong>Tipp:</strong> Klicke bei einem Hauptantrag auf den Button <strong>„Aufrufen“</strong>, um das Bestätigungsfenster zu öffnen und den Antrag im Plenum für alle sichtbar zu schalten.
-                </span>
-              </div>
+           
 
               {/* ========================================================================= */}
               {/* HAUPTANTRÄGE BLOCK (Antrag 1 bis Antrag 33)                               */}
@@ -2168,7 +2157,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                   </div>
 
                   <span className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-1">
-                    Plenum bereit • Live verbunden
+                    Plenum bereit
                   </span>
                   <h3 className="text-xl sm:text-2xl font-black text-white mb-2">
                     Warte auf Aufruf der Strategieführung...
@@ -2330,7 +2319,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 
       {/* Footer */}
       <footer className="pt-6 pb-2 text-center text-xs text-slate-500 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-3">
-        <span>Schüler:innenparlament (SiP) • Live-Tool</span>
+        <span>Schüler:innenparlament (SiP)</span>
         <span className="hidden sm:inline text-slate-700">•</span>
         <span className="text-slate-400 font-semibold">© Elias Mathis</span>
       </footer>

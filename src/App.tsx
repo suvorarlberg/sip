@@ -586,9 +586,7 @@ export const App: React.FC = () => {
               <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-sky-400 block leading-tight">
                 Schüler:innenparlament
               </span>
-              <span className="text-sm sm:text-base font-black text-white leading-tight">
-                SiP Live-Tool
-              </span>
+          
             </div>
           </div>
 

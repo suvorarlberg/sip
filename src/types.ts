@@ -4,6 +4,7 @@ export interface MemberAccount {
   password: string;
   role?: 'mitglied' | 'gast' | 'presse' | 'strategie' | 'admin';
   isExternal?: boolean;
+  isInternal?: boolean;
   /** ISO-String wenn der Zugang zeitlich begrenzt ist, ansonsten null/undefined */
   expiresAt?: string | null;
   createdAt?: string;
