@@ -1,13 +1,26 @@
 import PocketBase from 'pocketbase';
 import { AppSettings, SipStateRecord } from '../types';
 
-export const pb = new PocketBase('https://api.sip.schuelerunion-vorarlberg.at');
+export const POCKETBASE_URL = 'https://api.sip.schuelerunion-vorarlberg.at';
+export const pb = new PocketBase(POCKETBASE_URL);
 // Verhindert automatisches Stornieren von Requests bei schnellen aufeinanderfolgenden Aufrufen
 pb.autoCancellation(false);
 
 export const SIP_DB_ROW_ID = 'currentsession0';
+export const SIP_LIVE_ROW_ID = 'siplivestate000';
 export const SIP_CONFIG_ROW_ID = 'sipusersconfig0';
 export const SIP_ARCHIVE_ROW_ID = 'siparchives0000';
+
+/**
+ * Hilfsfunktion zum sicheren Parsen von PocketBase- ("YYYY-MM-DD HH:mm:ss.SSSZ")
+ * und ISO-Zeitstempeln ("YYYY-MM-DDTHH:mm:ss.SSSZ") in Millisekunden.
+ */
+export function parsePbTimestamp(ts?: string | null): number {
+  if (!ts || typeof ts !== 'string') return 0;
+  const normalized = ts.trim().replace(' ', 'T');
+  const time = new Date(normalized).getTime();
+  return isNaN(time) ? 0 : time;
+}
 
 export interface CloudTwoFactorToken {
   code: string;
@@ -115,6 +128,62 @@ export async function upsertSipRow(
     id: rowId,
     payload: actualPayload,
   };
+
+  let bodyStr = '';
+  try {
+    bodyStr = JSON.stringify(recordData);
+  } catch (e) {
+    bodyStr = '';
+  }
+
+  // Für kleine bis mittlere Payloads (< 60 KB, z.B. sipusersconfig0 oder siplivestate000)
+  // nutzen wir fetch mit keepalive: true, damit ein Seiten-Reload (F5) laufende Speicher-Requests NIEMALS abbricht!
+  if (bodyStr && bodyStr.length < 60000 && typeof fetch === 'function') {
+    let keepaliveRes: Response | null = null;
+    let keepaliveErr: any = null;
+
+    try {
+      keepaliveRes = await fetch(
+        `${POCKETBASE_URL}/api/collections/${SIP_DATABASE_TABLE}/records/${encodeURIComponent(rowId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: bodyStr,
+          keepalive: true,
+        }
+      );
+    } catch (err: any) {
+      keepaliveErr = err;
+    }
+
+    if (!keepaliveErr && keepaliveRes && keepaliveRes.ok) {
+      const updatedRecord = (await keepaliveRes.json()) as SipStateRecord;
+      return { success: true, data: updatedRecord, tableUsed: SIP_DATABASE_TABLE };
+    }
+
+    if (!keepaliveErr && keepaliveRes && keepaliveRes.status === 404) {
+      let createRes: Response | null = null;
+      let createKeepaliveErr: any = null;
+      try {
+        createRes = await fetch(
+          `${POCKETBASE_URL}/api/collections/${SIP_DATABASE_TABLE}/records`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: bodyStr,
+            keepalive: true,
+          }
+        );
+      } catch (err: any) {
+        createKeepaliveErr = err;
+      }
+
+      if (!createKeepaliveErr && createRes && createRes.ok) {
+        const createdRecord = (await createRes.json()) as SipStateRecord;
+        return { success: true, data: createdRecord, tableUsed: SIP_DATABASE_TABLE };
+      }
+    }
+  }
 
   let updatedRaw: any = null;
   let updateError: any = null;

@@ -8,14 +8,54 @@ import {
   SipActivityLogEntry,
 } from './types';
 import { AppSettings, SipStateRecord } from '../types';
-import { pb, SIP_DATABASE_TABLE, SIP_CONFIG_ROW_ID } from '../utils/pocketbaseSync';
+import {
+  pb,
+  SIP_DATABASE_TABLE,
+  SIP_CONFIG_ROW_ID,
+  SIP_LIVE_ROW_ID,
+  upsertSipRow,
+  parsePbTimestamp,
+} from '../utils/pocketbaseSync';
 import { archiveCurrentSession } from './utils/archiveService';
 
 export const SIP_STORAGE_KEY = 'sip_session_state_v1';
+export const SIP_LIVE_OVERLAY_STORAGE_KEY = 'sip_live_overlay_v1';
+export const SIP_PENDING_SESSION_SYNC_KEY = 'sip_pending_session_sync_v1';
+export const SIP_LAST_LIVE_SERVER_UPDATED_KEY = 'sip_last_live_server_updated_v1';
 export const SIP_NOTIFICATION_STORAGE_KEY = 'sip_recent_notifications_v1';
 export const SIP_REALTIME_CHANNEL_NAME = 'sip-live-updates';
 export const SIP_DB_ROW_ID = 'currentsession0';
-export { SIP_DATABASE_TABLE };
+export { SIP_DATABASE_TABLE, SIP_LIVE_ROW_ID };
+
+export interface SipMotionLivePatch {
+  status?: SipAntrag['status'];
+  claimedBy: string | null;
+  claimedAt: string | null;
+  isActive: boolean;
+  plenumResult?: 'ANGENOMMEN' | 'ABGELEHNT' | null;
+  plenumResultAt?: string | null;
+  title?: string;
+  content?: string;
+  author?: string;
+  type?: SipAntrag['type'];
+  lineOrParagraph?: string;
+  isEditedByAdmin?: boolean;
+}
+
+export interface SipLiveStateOverlay {
+  sessionId: string;
+  title: string;
+  driveFolderUrl: string;
+  strategyNotes?: string;
+  activeAntragId: string | null;
+  voteRecommendation: VoteRecommendation;
+  motionPatches: Record<string, SipMotionLivePatch>;
+  customAntraege: SipAntrag[];
+  deletedAntragIds: string[];
+  memes: SipMeme[];
+  activityLog: SipActivityLogEntry[];
+  updatedAt: string;
+}
 
 export type SipRealtimeMessage =
   | { type: 'STATE_SYNC'; session: SipSession }
@@ -41,10 +81,19 @@ class SipRealtimeService {
   private isInitialized = false;
   private isPollingCloud = false;
   private isFetchingSession = false;
+  private isSyncingLiveOverlay = false;
+  private pendingLiveOverlay: SipLiveStateOverlay | null = null;
+  private latestLiveOverlay: SipLiveStateOverlay | null = null;
+  private deletedAntragIds: Set<string> = new Set();
   private lastKnownSessionServerUpdated = '';
+  private lastKnownLiveServerUpdated =
+    typeof window !== 'undefined'
+      ? localStorage.getItem(SIP_LAST_LIVE_SERVER_UPDATED_KEY) || ''
+      : '';
   private lastKnownConfigServerUpdated = '';
 
   private syncInterval: any = null;
+  private fullSessionSyncTimer: any = null;
 
   constructor() {
     this.loadFromStorage();
@@ -64,6 +113,28 @@ class SipRealtimeService {
     } catch (err) {
       // Ignore storage read errors
     }
+
+    try {
+      const savedOverlay = localStorage.getItem(SIP_LIVE_OVERLAY_STORAGE_KEY);
+      if (savedOverlay) {
+        const overlay = JSON.parse(savedOverlay) as SipLiveStateOverlay;
+        if (overlay && typeof overlay === 'object' && overlay.updatedAt) {
+          this.latestLiveOverlay = overlay;
+          if (Array.isArray(overlay.deletedAntragIds)) {
+            overlay.deletedAntragIds.forEach((id) => this.deletedAntragIds.add(id));
+          }
+          if (
+            !overlay.sessionId ||
+            overlay.sessionId === this.currentSession.id ||
+            parsePbTimestamp(overlay.updatedAt) >= parsePbTimestamp(this.currentSession.updatedAt)
+          ) {
+            this.currentSession = this.mergeOverlayIntoSession(this.currentSession, overlay);
+          }
+        }
+      }
+    } catch (err) {
+      // Ignore overlay read errors
+    }
   }
 
   private initLocalChannel() {
@@ -82,8 +153,23 @@ class SipRealtimeService {
         if (event.key === SIP_STORAGE_KEY && event.newValue) {
           try {
             const parsed = JSON.parse(event.newValue) as SipSession;
-            if (parsed && parsed.updatedAt && parsed.updatedAt > this.currentSession.updatedAt) {
+            if (
+              parsed &&
+              parsed.updatedAt &&
+              parsePbTimestamp(parsed.updatedAt) > parsePbTimestamp(this.currentSession.updatedAt)
+            ) {
               this.applyCloudSession(parsed, false);
+            }
+          } catch (e) {}
+        } else if (event.key === SIP_LIVE_OVERLAY_STORAGE_KEY && event.newValue) {
+          try {
+            const parsedOverlay = JSON.parse(event.newValue) as SipLiveStateOverlay;
+            if (
+              parsedOverlay &&
+              parsedOverlay.updatedAt &&
+              parsePbTimestamp(parsedOverlay.updatedAt) > parsePbTimestamp(this.currentSession.updatedAt)
+            ) {
+              this.applyLiveOverlay(parsedOverlay, undefined, false);
             }
           } catch (e) {}
         }
@@ -99,11 +185,175 @@ class SipRealtimeService {
 
   private nextTimestamp(): string {
     const now = Date.now();
-    const prev = this.currentSession?.updatedAt
-      ? new Date(this.currentSession.updatedAt).getTime()
-      : 0;
-    const next = !isNaN(prev) && now <= prev ? prev + 1 : now;
+    const prev = parsePbTimestamp(this.currentSession?.updatedAt);
+    const next = prev > 0 && now <= prev ? prev + 1 : now;
     return new Date(next).toISOString();
+  }
+
+  private buildLiveOverlay(session: SipSession): SipLiveStateOverlay {
+    const motionPatches: Record<string, SipMotionLivePatch> = {};
+    for (const a of session.antraege || []) {
+      const hasNonDefaultStatus = Boolean(a.status && a.status !== 'approved');
+      if (
+        a.claimedBy ||
+        a.isActive ||
+        a.id === session.activeAntragId ||
+        a.plenumResult ||
+        hasNonDefaultStatus ||
+        a.isEditedByAdmin
+      ) {
+        motionPatches[a.id] = {
+          status: a.status || 'approved',
+          claimedBy: a.claimedBy || null,
+          claimedAt: a.claimedAt || null,
+          isActive: Boolean(a.isActive || a.id === session.activeAntragId),
+          plenumResult: a.plenumResult || null,
+          plenumResultAt: a.plenumResultAt || null,
+          ...(a.isEditedByAdmin
+            ? {
+                title: a.title,
+                content: a.content,
+                author: a.author,
+                type: a.type,
+                lineOrParagraph: a.lineOrParagraph,
+                isEditedByAdmin: true,
+              }
+            : {}),
+        };
+      }
+    }
+
+    const customAntraege = (session.antraege || []).filter(
+      (a) => !a.isPreFab && a.id.startsWith('antrag_custom_')
+    );
+
+    return {
+      sessionId: session.id,
+      title: session.title,
+      driveFolderUrl: session.driveFolderUrl || '',
+      strategyNotes: (session.strategyNotes || '').length < 15000 ? session.strategyNotes : undefined,
+      activeAntragId: session.activeAntragId || null,
+      voteRecommendation: session.voteRecommendation,
+      motionPatches,
+      customAntraege,
+      deletedAntragIds: Array.from(this.deletedAntragIds),
+      memes: session.memes || [],
+      activityLog: (session.activityLog || []).slice(0, 30),
+      updatedAt: session.updatedAt,
+    };
+  }
+
+  private mergeOverlayIntoSession(
+    baseSession: SipSession,
+    overlay: SipLiveStateOverlay
+  ): SipSession {
+    if (!overlay || typeof overlay !== 'object') return baseSession;
+
+    const deletedSet = new Set<string>(
+      Array.isArray(overlay.deletedAntragIds) ? overlay.deletedAntragIds : []
+    );
+    deletedSet.forEach((id) => this.deletedAntragIds.add(id));
+
+    const baseAntraege = (baseSession.antraege || []).filter((a) => !deletedSet.has(a.id));
+    const baseIds = new Set(baseAntraege.map((a) => a.id));
+
+    const newCustomAntraege = (Array.isArray(overlay.customAntraege) ? overlay.customAntraege : []).filter(
+      (c) => c && c.id && !deletedSet.has(c.id) && !baseIds.has(c.id)
+    );
+
+    const customMap = new Map<string, SipAntrag>();
+    if (Array.isArray(overlay.customAntraege)) {
+      overlay.customAntraege.forEach((c) => {
+        if (c && c.id) customMap.set(c.id, c);
+      });
+    }
+
+    const patches = overlay.motionPatches || {};
+    const activeId = overlay.activeAntragId !== undefined ? overlay.activeAntragId : null;
+
+    const combinedAntraege = [...newCustomAntraege, ...baseAntraege].map((a) => {
+      const customReplacement = customMap.get(a.id);
+      const source = customReplacement ? { ...a, ...customReplacement } : a;
+      const patch = patches[source.id];
+      if (patch) {
+        return {
+          ...source,
+          status: patch.status || source.status || 'approved',
+          claimedBy: patch.claimedBy !== undefined ? patch.claimedBy : null,
+          claimedAt: patch.claimedAt !== undefined ? patch.claimedAt : null,
+          isActive: activeId ? source.id === activeId : Boolean(patch.isActive),
+          plenumResult: patch.plenumResult !== undefined ? patch.plenumResult : null,
+          plenumResultAt: patch.plenumResultAt !== undefined ? patch.plenumResultAt : null,
+          ...(patch.isEditedByAdmin
+            ? {
+                title: patch.title ?? source.title,
+                content: patch.content ?? source.content,
+                author: patch.author ?? source.author,
+                type: patch.type ?? source.type,
+                lineOrParagraph: patch.lineOrParagraph ?? source.lineOrParagraph,
+                isEditedByAdmin: true,
+              }
+            : {}),
+        };
+      }
+      return {
+        ...source,
+        status: 'approved' as const,
+        claimedBy: null,
+        claimedAt: null,
+        isActive: activeId ? source.id === activeId : false,
+        plenumResult: null,
+        plenumResultAt: null,
+      };
+    });
+
+    return {
+      ...baseSession,
+      id: overlay.sessionId || baseSession.id,
+      title: overlay.title || baseSession.title,
+      driveFolderUrl:
+        overlay.driveFolderUrl !== undefined ? overlay.driveFolderUrl : baseSession.driveFolderUrl,
+      strategyNotes:
+        overlay.strategyNotes !== undefined ? overlay.strategyNotes : baseSession.strategyNotes,
+      activeAntragId: activeId,
+      voteRecommendation: overlay.voteRecommendation || baseSession.voteRecommendation,
+      antraege: combinedAntraege,
+      memes: Array.isArray(overlay.memes) ? overlay.memes : baseSession.memes,
+      activityLog:
+        Array.isArray(overlay.activityLog) && overlay.activityLog.length > 0
+          ? overlay.activityLog
+          : baseSession.activityLog,
+      updatedAt: overlay.updatedAt || baseSession.updatedAt,
+    };
+  }
+
+  private applyLiveOverlay(
+    overlay: SipLiveStateOverlay,
+    recordUpdated?: string,
+    forceOverwrite = false
+  ) {
+    if (!overlay || typeof overlay !== 'object') return;
+    if (
+      !forceOverwrite &&
+      (this.isSyncingLiveOverlay || Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)))
+    ) {
+      return;
+    }
+
+    if (recordUpdated) {
+      this.lastKnownLiveServerUpdated = recordUpdated;
+      try {
+        localStorage.setItem(SIP_LAST_LIVE_SERVER_UPDATED_KEY, recordUpdated);
+      } catch (e) {}
+    }
+
+    this.latestLiveOverlay = overlay;
+    try {
+      localStorage.setItem(SIP_LIVE_OVERLAY_STORAGE_KEY, JSON.stringify(overlay));
+    } catch (e) {}
+
+    const mergedSession = this.mergeOverlayIntoSession(this.currentSession, overlay);
+    this.applyCloudSession(mergedSession, true);
   }
 
   private toCompactSession(session: SipSession): SipSession {
@@ -235,7 +485,7 @@ class SipRealtimeService {
       !forceOverwrite &&
       cloudSession.updatedAt &&
       this.currentSession.updatedAt &&
-      cloudSession.updatedAt <= this.currentSession.updatedAt
+      parsePbTimestamp(cloudSession.updatedAt) <= parsePbTimestamp(this.currentSession.updatedAt)
     ) {
       return;
     }
@@ -375,27 +625,45 @@ class SipRealtimeService {
     if (!this.isInitialized) {
       this.isInitialized = true;
       this.setupSupabase(settings);
-      this.fetchFromSupabase(settings, false).catch(() => {});
+      void this.flushPendingAndFetchInitial(settings);
 
       if (!this.syncInterval) {
         this.syncInterval = setInterval(() => {
           this.pollCloudChanges().catch(() => {});
-        }, 2000);
+        }, 1500);
       }
     }
+  }
+
+  private async flushPendingAndFetchInitial(settings?: AppSettings): Promise<void> {
+    try {
+      if (typeof window !== 'undefined') {
+        const pendingRaw = localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY);
+        if (pendingRaw) {
+          try {
+            const pendingOverlay = JSON.parse(pendingRaw) as SipLiveStateOverlay;
+            if (pendingOverlay && pendingOverlay.updatedAt) {
+              this.latestLiveOverlay = pendingOverlay;
+              this.currentSession = this.mergeOverlayIntoSession(this.currentSession, pendingOverlay);
+              this.notify();
+              await this.syncLiveOverlayToPocketBase(pendingOverlay);
+              void this.scheduleFullSessionSync(this.currentSession);
+            }
+          } catch (e) {
+            localStorage.removeItem(SIP_PENDING_SESSION_SYNC_KEY);
+          }
+        }
+      }
+    } catch (e) {}
+
+    await this.fetchFromSupabase(settings, false).catch(() => {});
   }
 
   private async pollCloudChanges(): Promise<void> {
     if (this.isPollingCloud) return;
     this.isPollingCloud = true;
     try {
-      // If we haven't loaded the initial session yet, fetch it directly
-      if (!this.hasLoadedCloudSession) {
-        await this.fetchFromPocketBase(this.cachedSettings || undefined, false);
-        return;
-      }
-
-      // Lightweight metadata check (~249 bytes instead of 717 KB)
+      // Schneller Metadaten-Check (~250 Bytes statt 500 KB) für Echtzeit-Sync (< 1.5s)
       const listRes = await pb.collection(SIP_DATABASE_TABLE).getList(1, 10, {
         fields: 'id,updated',
         requestKey: null,
@@ -403,23 +671,41 @@ class SipRealtimeService {
       });
 
       const items = listRes?.items || [];
+      const liveMeta = items.find((item: any) => item.id === SIP_LIVE_ROW_ID);
       const sessionMeta = items.find((item: any) => item.id === SIP_DB_ROW_ID);
       const configMeta = items.find((item: any) => item.id === SIP_CONFIG_ROW_ID);
 
+      // 1. Prüfe schnelles Live-Overlay (siplivestate000, ~25 KB) -> Echtzeit-Plenum-Updates in ~300ms
       if (
-        sessionMeta &&
-        sessionMeta.updated &&
-        sessionMeta.updated !== this.lastKnownSessionServerUpdated &&
-        !this.isSyncingToSupabase &&
-        Date.now() - this.lastLocalMutationAt >= 2500
+        liveMeta &&
+        liveMeta.updated &&
+        parsePbTimestamp(liveMeta.updated) > parsePbTimestamp(this.lastKnownLiveServerUpdated) &&
+        !this.isSyncingLiveOverlay &&
+        !Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)) &&
+        Date.now() - this.lastLocalMutationAt >= 1500
       ) {
-        await this.fetchFromPocketBase(this.cachedSettings || undefined, false);
+        try {
+          const liveRecord: any = await pb.collection(SIP_DATABASE_TABLE).getOne(SIP_LIVE_ROW_ID, {
+            requestKey: null,
+            query: { _t: Date.now() },
+          });
+          if (liveRecord && liveRecord.payload) {
+            this.applyLiveOverlay(
+              liveRecord.payload as SipLiveStateOverlay,
+              liveRecord.updated || liveMeta.updated,
+              true
+            );
+          }
+        } catch (liveErr) {
+          // Ignore transient live overlay poll errors
+        }
       }
 
+      // 2. Prüfe Account- & Einstellungs-Konfiguration (sipusersconfig0, ~2 KB)
       if (
         configMeta &&
         configMeta.updated &&
-        configMeta.updated !== this.lastKnownConfigServerUpdated
+        parsePbTimestamp(configMeta.updated) > parsePbTimestamp(this.lastKnownConfigServerUpdated)
       ) {
         try {
           const configRecord: any = await pb.collection(SIP_DATABASE_TABLE).getOne(SIP_CONFIG_ROW_ID, {
@@ -440,8 +726,19 @@ class SipRealtimeService {
           // Ignore transient config poll errors
         }
       }
+
+      // 3. Prüfe Haupt-Session (currentsession0, ~500 KB) falls sich diese geändert hat (z.B. neues SiP / Import)
+      if (
+        sessionMeta &&
+        sessionMeta.updated &&
+        parsePbTimestamp(sessionMeta.updated) > parsePbTimestamp(this.lastKnownSessionServerUpdated) &&
+        !this.isSyncingToSupabase &&
+        !this.isSyncingLiveOverlay &&
+        Date.now() - this.lastLocalMutationAt >= 2500
+      ) {
+        await this.fetchFromPocketBase(this.cachedSettings || undefined, false);
+      }
     } catch (err) {
-      // Fallback if getList is unavailable
       if (!this.isSyncingToSupabase && Date.now() - this.lastLocalMutationAt >= 2500) {
         await this.fetchFromPocketBase(this.cachedSettings || undefined, false).catch(() => {});
       }
@@ -464,14 +761,40 @@ class SipRealtimeService {
       const handleRealtimeRecord = (e: any) => {
         if (!e || e.action === 'delete') return;
         const record = e.record;
-        if (record && (!record.id || record.id === SIP_DB_ROW_ID) && record.payload) {
+        if (!record) return;
+
+        if (record.id === SIP_LIVE_ROW_ID && record.payload) {
+          if (
+            !this.isSyncingLiveOverlay &&
+            !Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)) &&
+            Date.now() - this.lastLocalMutationAt >= 1200
+          ) {
+            this.applyLiveOverlay(record.payload as SipLiveStateOverlay, record.updated, true);
+          } else if (record.updated) {
+            this.lastKnownLiveServerUpdated = record.updated;
+          }
+        } else if ((!record.id || record.id === SIP_DB_ROW_ID) && record.payload) {
           if (record.updated) {
             this.lastKnownSessionServerUpdated = record.updated;
           }
-          if (!this.isSyncingToSupabase && Date.now() - this.lastLocalMutationAt >= 2000) {
-            this.setAppState(record.payload, false);
+          if (
+            !this.isSyncingToSupabase &&
+            !this.isSyncingLiveOverlay &&
+            Date.now() - this.lastLocalMutationAt >= 2000
+          ) {
+            let sessionPayload = record.payload as SipSession;
+            if (
+              this.latestLiveOverlay &&
+              (!this.latestLiveOverlay.sessionId ||
+                this.latestLiveOverlay.sessionId === sessionPayload.id) &&
+              parsePbTimestamp(this.latestLiveOverlay.updatedAt) >=
+                parsePbTimestamp(sessionPayload.updatedAt)
+            ) {
+              sessionPayload = this.mergeOverlayIntoSession(sessionPayload, this.latestLiveOverlay);
+            }
+            this.setAppState(sessionPayload, false);
           }
-        } else if (record && record.id === SIP_CONFIG_ROW_ID && record.payload) {
+        } else if (record.id === SIP_CONFIG_ROW_ID && record.payload) {
           if (record.updated) {
             this.lastKnownConfigServerUpdated = record.updated;
           }
@@ -524,10 +847,24 @@ class SipRealtimeService {
 
   private saveToStorage() {
     try {
+      const overlay = this.buildLiveOverlay(this.currentSession);
+      this.latestLiveOverlay = overlay;
+      localStorage.setItem(SIP_LIVE_OVERLAY_STORAGE_KEY, JSON.stringify(overlay));
+    } catch (overlayErr) {
+      try {
+        localStorage.removeItem('sip_archived_sessions_v1');
+        const overlay = this.buildLiveOverlay(this.currentSession);
+        localStorage.setItem(SIP_LIVE_OVERLAY_STORAGE_KEY, JSON.stringify(overlay));
+      } catch (e) {}
+    }
+
+    try {
       localStorage.setItem(SIP_STORAGE_KEY, JSON.stringify(this.currentSession));
     } catch (err: any) {
-      const errorMsg = err.message || 'Unknown error';
-      void errorMsg;
+      try {
+        localStorage.removeItem('sip_archived_sessions_v1');
+        localStorage.setItem(SIP_STORAGE_KEY, JSON.stringify(this.currentSession));
+      } catch (retryErr) {}
     }
   }
 
@@ -603,7 +940,11 @@ class SipRealtimeService {
 
     switch (msg.type) {
       case 'STATE_SYNC':
-        if (msg.session && (!this.currentSession || msg.session.updatedAt > this.currentSession.updatedAt)) {
+        if (
+          msg.session &&
+          (!this.currentSession ||
+            parsePbTimestamp(msg.session.updatedAt) > parsePbTimestamp(this.currentSession.updatedAt))
+        ) {
           this.applyCloudSession(msg.session, false);
         }
         break;
@@ -612,7 +953,8 @@ class SipRealtimeService {
         if (msg.settings) {
           this.configListeners.forEach((cb) => {
             try {
-              cb(msg.settings, msg.settings.updatedAt);
+              // WICHTIG: undefined als recordUpdated übergeben, da msg.settings.updatedAt ein Client-ISO-String ist!
+              cb(msg.settings, undefined);
             } catch (err) {
               console.error('Error in config listener:', err);
             }
@@ -1104,7 +1446,19 @@ class SipRealtimeService {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) => {
         if (a.id === antragId) {
-          updatedObj = { ...a, ...updates, updatedAt: ts } as SipAntrag;
+          const isEdited =
+            updates.title !== undefined ||
+            updates.content !== undefined ||
+            updates.author !== undefined ||
+            updates.type !== undefined ||
+            updates.lineOrParagraph !== undefined ||
+            Boolean(a.isEditedByAdmin);
+          updatedObj = {
+            ...a,
+            ...updates,
+            isEditedByAdmin: isEdited,
+            updatedAt: ts,
+          } as SipAntrag;
           return updatedObj;
         }
         return a;
@@ -1140,6 +1494,7 @@ class SipRealtimeService {
 
   public async deleteAntrag(antragId: string, settings?: AppSettings) {
     this.lastLocalMutationAt = Date.now();
+    this.deletedAntragIds.add(antragId);
     const target = this.currentSession.antraege.find((a) => a.id === antragId);
     if (target) {
       this.logActivity({
@@ -1173,6 +1528,7 @@ class SipRealtimeService {
 
   public async archiveAndClearCurrentSession(settings?: AppSettings): Promise<void> {
     this.lastLocalMutationAt = Date.now();
+    this.deletedAntragIds.clear();
     const oldSession = { ...this.currentSession };
 
     const ts = this.nextTimestamp();
@@ -1226,6 +1582,7 @@ class SipRealtimeService {
     settings?: AppSettings
   ): Promise<void> {
     this.lastLocalMutationAt = Date.now();
+    this.deletedAntragIds.clear();
     const oldSession = { ...this.currentSession };
 
     const initialAntraege = (options.antraege || []).map((a) => ({
@@ -1287,6 +1644,7 @@ class SipRealtimeService {
     settings?: AppSettings
   ): Promise<void> {
     this.lastLocalMutationAt = Date.now();
+    this.deletedAntragIds.clear();
     const normalizedInput = antraege.map((a) => ({ ...a, isPreFab: false }));
     const hauptantraege = normalizedInput.filter((a) => a.type === 'HAUPTANTRAG');
     const nebenantraege = normalizedInput.filter((a) => a.type !== 'HAUPTANTRAG');
@@ -1365,6 +1723,7 @@ class SipRealtimeService {
 
   public async importAntraege(newAntraege: SipAntrag[], settings?: AppSettings) {
     this.lastLocalMutationAt = Date.now();
+    this.deletedAntragIds.clear();
     const normalizedInput = newAntraege.map((a) => ({ ...a, isPreFab: false }));
     const hauptantraege = normalizedInput.filter((a) => a.type === 'HAUPTANTRAG');
     const nebenantraege = normalizedInput.filter((a) => a.type !== 'HAUPTANTRAG');
@@ -1511,7 +1870,12 @@ class SipRealtimeService {
   }
 
   public async fetchFromPocketBase(_settings?: AppSettings, forceOverwrite = false): Promise<SipSession | null> {
-    if (this.isSyncingToSupabase || (!forceOverwrite && Date.now() - this.lastLocalMutationAt < 2500)) {
+    if (
+      this.isSyncingToSupabase ||
+      this.isSyncingLiveOverlay ||
+      (!forceOverwrite && Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY))) ||
+      (!forceOverwrite && Date.now() - this.lastLocalMutationAt < 2000)
+    ) {
       return null;
     }
     if (this.isFetchingSession && !forceOverwrite) {
@@ -1519,6 +1883,31 @@ class SipRealtimeService {
     }
 
     this.isFetchingSession = true;
+
+    // 1. Lade zuerst das kompakte Live-Overlay (siplivestate000, ~25 KB -> dauert nur ~300ms!)
+    try {
+      const liveRecord: any = await pb.collection(SIP_DATABASE_TABLE).getOne(SIP_LIVE_ROW_ID, {
+        requestKey: null,
+        query: { _t: Date.now() },
+      });
+      if (
+        liveRecord &&
+        liveRecord.payload &&
+        !this.isSyncingLiveOverlay &&
+        !Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)) &&
+        Date.now() - this.lastLocalMutationAt >= 1500
+      ) {
+        this.applyLiveOverlay(
+          liveRecord.payload as SipLiveStateOverlay,
+          liveRecord.updated,
+          true
+        );
+      }
+    } catch (liveFetchErr) {
+      // Falls siplivestate000 noch nicht existiert, fahren wir mit currentsession0 fort
+    }
+
+    // 2. Lade anschließend die vollständige Session (currentsession0)
     const rowId = SIP_DB_ROW_ID;
     let rawRecord: any = null;
     let readError: any = null;
@@ -1534,7 +1923,13 @@ class SipRealtimeService {
       this.isFetchingSession = false;
     }
 
-    if (!forceOverwrite && (this.isSyncingToSupabase || Date.now() - this.lastLocalMutationAt < 2500)) {
+    if (
+      !forceOverwrite &&
+      (this.isSyncingToSupabase ||
+        this.isSyncingLiveOverlay ||
+        Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)) ||
+        Date.now() - this.lastLocalMutationAt < 2000)
+    ) {
       return null;
     }
 
@@ -1544,8 +1939,19 @@ class SipRealtimeService {
         this.lastKnownSessionServerUpdated = record.updated;
       }
       if (record && record.payload) {
-        const sessionData = record.payload as unknown as SipSession;
-        this.setAppState(sessionData, forceOverwrite);
+        let sessionData = record.payload as unknown as SipSession;
+        // WICHTIG: Falls siplivestate000 (oder unser lokales Live-Overlay) aktueller als currentsession0 ist,
+        // wenden wir das Live-Overlay über currentsession0 an, damit kein älterer 500KB-Stand neue Klicks überschreibt!
+        if (
+          this.latestLiveOverlay &&
+          (!this.latestLiveOverlay.sessionId ||
+            this.latestLiveOverlay.sessionId === sessionData.id) &&
+          parsePbTimestamp(this.latestLiveOverlay.updatedAt) >=
+            parsePbTimestamp(sessionData.updatedAt)
+        ) {
+          sessionData = this.mergeOverlayIntoSession(sessionData, this.latestLiveOverlay);
+        }
+        this.setAppState(sessionData, true);
         return sessionData;
       }
       return null;
@@ -1595,11 +2001,88 @@ class SipRealtimeService {
     return this.fetchFromPocketBase(settings, forceOverwrite);
   }
 
+  private stripRedundantTextFromSession(session: SipSession): SipSession {
+    return {
+      ...session,
+      antraege: (session.antraege || []).map((a: any) => {
+        if (a && a.text && a.text === a.content) {
+          const { text, ...rest } = a;
+          return rest as SipAntrag;
+        }
+        return a as SipAntrag;
+      }),
+    };
+  }
+
+  private async syncLiveOverlayToPocketBase(overlay: SipLiveStateOverlay): Promise<void> {
+    this.lastLocalMutationAt = Date.now();
+    this.latestLiveOverlay = overlay;
+    try {
+      localStorage.setItem(SIP_LIVE_OVERLAY_STORAGE_KEY, JSON.stringify(overlay));
+      localStorage.setItem(SIP_PENDING_SESSION_SYNC_KEY, JSON.stringify(overlay));
+    } catch (e) {}
+
+    if (this.isSyncingLiveOverlay) {
+      this.pendingLiveOverlay = overlay;
+      return;
+    }
+
+    this.isSyncingLiveOverlay = true;
+    let currentOverlay: SipLiveStateOverlay | null = overlay;
+
+    try {
+      while (currentOverlay) {
+        const snapshot = currentOverlay;
+        this.pendingLiveOverlay = null;
+        this.lastLocalMutationAt = Date.now();
+
+        const res = await upsertSipRow({
+          id: SIP_LIVE_ROW_ID,
+          payload: snapshot,
+        });
+
+        if (res.success && res.data?.updated) {
+          this.lastKnownLiveServerUpdated = res.data.updated;
+          try {
+            localStorage.setItem(SIP_LAST_LIVE_SERVER_UPDATED_KEY, res.data.updated);
+          } catch (e) {}
+        }
+
+        if (
+          res.success &&
+          !this.pendingLiveOverlay &&
+          this.latestLiveOverlay?.updatedAt === snapshot.updatedAt
+        ) {
+          try {
+            localStorage.removeItem(SIP_PENDING_SESSION_SYNC_KEY);
+          } catch (e) {}
+        }
+
+        this.lastLocalMutationAt = Date.now();
+        currentOverlay = this.pendingLiveOverlay;
+      }
+    } finally {
+      this.lastLocalMutationAt = Date.now();
+      this.isSyncingLiveOverlay = false;
+    }
+  }
+
+  private scheduleFullSessionSync(sessionToSave: SipSession): void {
+    if (this.fullSessionSyncTimer) {
+      clearTimeout(this.fullSessionSyncTimer);
+    }
+    this.fullSessionSyncTimer = setTimeout(() => {
+      this.fullSessionSyncTimer = null;
+      void this.syncFullSessionRecord(sessionToSave);
+    }, 300);
+  }
+
   private async persistSingleSessionToPocketBase(sessionToSave: SipSession): Promise<void> {
     const rowId = SIP_DB_ROW_ID;
+    const optimizedSession = this.stripRedundantTextFromSession(sessionToSave);
     const recordData = {
       id: rowId,
-      payload: sessionToSave,
+      payload: optimizedSession,
     };
 
     let updateError: any = null;
@@ -1624,7 +2107,7 @@ class SipRealtimeService {
     if (status === 404) {
       const createObj = {
         id: rowId,
-        payload: sessionToSave,
+        payload: optimizedSession,
       };
 
       try {
@@ -1644,23 +2127,18 @@ class SipRealtimeService {
     console.warn('Could not update SiP session in PocketBase:', updateError);
   }
 
-  public async syncSessionToPocketBase(settings?: AppSettings, session?: SipSession): Promise<void> {
-    const targetSession = session || this.currentSession;
-    const targetSettings = settings || this.cachedSettings || undefined;
-    this.lastLocalMutationAt = Date.now();
-
+  private async syncFullSessionRecord(targetSession: SipSession): Promise<void> {
     if (this.isSyncingToSupabase) {
-      const pendingItem = {
-        settings: targetSettings,
+      this.pendingSyncSession = {
+        settings: this.cachedSettings || undefined,
         session: targetSession,
       };
-      this.pendingSyncSession = pendingItem;
       return;
     }
 
     this.isSyncingToSupabase = true;
     let currentToSync: { settings?: AppSettings; session: SipSession } | null = {
-      settings: targetSettings,
+      settings: this.cachedSettings || undefined,
       session: targetSession,
     };
 
@@ -1680,6 +2158,19 @@ class SipRealtimeService {
       this.lastLocalMutationAt = Date.now();
       this.isSyncingToSupabase = false;
     }
+  }
+
+  public async syncSessionToPocketBase(_settings?: AppSettings, session?: SipSession): Promise<void> {
+    const targetSession = session || this.currentSession;
+    this.lastLocalMutationAt = Date.now();
+
+    // 1. Sofortiges Speichern des kompakten Live-Overlays (siplivestate000, ~25 KB, keepalive: true)
+    // Dauert nur ~400ms, überlebt Seiten-Reload (F5) und triggert Echtzeit-Updates auf allen Geräten!
+    const liveOverlay = this.buildLiveOverlay(targetSession);
+    await this.syncLiveOverlayToPocketBase(liveOverlay);
+
+    // 2. Vollständige Session (currentsession0) im Hintergrund nachziehen
+    this.scheduleFullSessionSync(targetSession);
   }
 
   public async syncSessionToSupabase(settings?: AppSettings, session?: SipSession): Promise<void> {

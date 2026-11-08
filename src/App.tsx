@@ -18,11 +18,19 @@ import { SipAdminView } from './components/SipAdminView';
 import { AdminUnlockModal } from './components/AdminUnlockModal';
 import { SipMainView } from './sip/components/SipMainView';
 import { sipRealtime } from './sip/sipRealtime';
-import { verifyAdmin2FACode, querySipRow, upsertSipRow, SIP_CONFIG_ROW_ID } from './utils/pocketbaseSync';
+import {
+  verifyAdmin2FACode,
+  querySipRow,
+  upsertSipRow,
+  SIP_CONFIG_ROW_ID,
+  parsePbTimestamp,
+} from './utils/pocketbaseSync';
 import { verifyTotpCode } from './utils/totp';
 
 const STORAGE_KEYS = {
   SETTINGS: 'sip_standalone_settings_v3',
+  PENDING_CONFIG_SYNC: 'sip_pending_config_sync_v3',
+  LAST_CONFIG_SERVER_UPDATED: 'sip_config_server_updated_v3',
   LOGGED_USER: 'sip_logged_in_user_v3',
   ADMIN_UNLOCKED: 'sip_admin_unlocked_v3',
 };
@@ -73,16 +81,41 @@ export const App: React.FC = () => {
   const lastConfigMutationAtRef = useRef<number>(0);
   const isSyncingConfigRef = useRef<boolean>(false);
   const pendingSyncSettingsRef = useRef<AppSettings | null>(null);
-  const lastAppliedServerUpdatedRef = useRef<string>('');
+  const lastAppliedServerUpdatedRef = useRef<string>(
+    typeof window !== 'undefined'
+      ? localStorage.getItem(STORAGE_KEYS.LAST_CONFIG_SERVER_UPDATED) || ''
+      : ''
+  );
   const deletedUsernamesRef = useRef<Set<string>>(
     new Set((settings.deletedUsernames || []).map(normalizeUsernameForComparison))
   );
   const cachedCloudExtraPayloadRef = useRef<Record<string, any>>({});
 
+  function saveSettingsToLocalStorage(nextSettings: AppSettings, markPendingSync: boolean) {
+    const serialized = JSON.stringify(nextSettings);
+    try {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, serialized);
+      if (markPendingSync) {
+        localStorage.setItem(STORAGE_KEYS.PENDING_CONFIG_SYNC, serialized);
+      }
+    } catch (storageErr) {
+      // Falls LocalStorage wegen alter Archiv-Daten voll ist (QuotaExceededError), Archiv-Cache bereinigen
+      try {
+        localStorage.removeItem('sip_archived_sessions_v1');
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, serialized);
+        if (markPendingSync) {
+          localStorage.setItem(STORAGE_KEYS.PENDING_CONFIG_SYNC, serialized);
+        }
+      } catch (retryErr) {
+        console.error('Fehler beim Speichern der Einstellungen im LocalStorage:', retryErr);
+      }
+    }
+  }
+
   function nextConfigTimestamp(prevUpdatedAt?: string): string {
     const now = Date.now();
-    const prev = prevUpdatedAt ? new Date(prevUpdatedAt).getTime() : 0;
-    const next = !isNaN(prev) && now <= prev ? prev + 1 : now;
+    const prev = parsePbTimestamp(prevUpdatedAt);
+    const next = prev > 0 && now <= prev ? prev + 1 : now;
     return new Date(next).toISOString();
   }
 
@@ -93,26 +126,25 @@ export const App: React.FC = () => {
   ) {
     if (!payload || typeof payload !== 'object') return;
 
+    // Niemals lokale ungespeicherte Änderungen (während eines laufenden oder nach Reload ausstehenden Syncs) überschreiben!
+    if (isSyncingConfigRef.current || Boolean(localStorage.getItem(STORAGE_KEYS.PENDING_CONFIG_SYNC))) {
+      return;
+    }
+
     if (!forceOverwrite) {
-      if (isSyncingConfigRef.current) {
+      if (Date.now() - lastConfigMutationAtRef.current < 2500) {
         return;
       }
-      if (Date.now() - lastConfigMutationAtRef.current < 3000) {
-        return;
-      }
-      if (
-        recordUpdated &&
-        lastAppliedServerUpdatedRef.current &&
-        recordUpdated <= lastAppliedServerUpdatedRef.current
-      ) {
-        return;
-      }
-      const remoteTs = payload.updatedAt;
-      const localTs = settingsRef.current.updatedAt;
-      if (!recordUpdated && remoteTs && localTs) {
-        const remoteTime = new Date(remoteTs).getTime();
-        const localTime = new Date(localTs).getTime();
-        if (!isNaN(remoteTime) && !isNaN(localTime) && remoteTime <= localTime) {
+      if (recordUpdated) {
+        const incomingServerTime = parsePbTimestamp(recordUpdated);
+        const lastServerTime = parsePbTimestamp(lastAppliedServerUpdatedRef.current);
+        if (incomingServerTime > 0 && lastServerTime > 0 && incomingServerTime <= lastServerTime) {
+          return;
+        }
+      } else {
+        const remoteTime = parsePbTimestamp(payload.updatedAt);
+        const localTime = parsePbTimestamp(settingsRef.current.updatedAt);
+        if (remoteTime > 0 && localTime > 0 && remoteTime <= localTime) {
           return;
         }
       }
@@ -150,6 +182,9 @@ export const App: React.FC = () => {
     if (recordUpdated) {
       lastAppliedServerUpdatedRef.current = recordUpdated;
       sipRealtime.markConfigServerUpdated(recordUpdated);
+      try {
+        localStorage.setItem(STORAGE_KEYS.LAST_CONFIG_SERVER_UPDATED, recordUpdated);
+      } catch (e) {}
     }
 
     const nextSettings: AppSettings = {
@@ -173,11 +208,7 @@ export const App: React.FC = () => {
 
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
-    } catch (storageErr) {
-      console.error('Fehler beim Speichern der Einstellungen im LocalStorage:', storageErr);
-    }
+    saveSettingsToLocalStorage(nextSettings, false);
   }
 
   // Automatische Erkennung beim Öffnen über den 2FA-Bestätigungslink aus der E-Mail (wie im Inventurprogramm)
@@ -224,8 +255,23 @@ export const App: React.FC = () => {
 
   // Cloud Sync für Einstellungen & Accounts
   useEffect(() => {
-    async function fetchUsers() {
+    async function initAndFetchUsers() {
       try {
+        // 1. Prüfe zuerst, ob vor einem Seiten-Reload (F5) noch eine ungespeicherte Änderung ausstand
+        const pendingRaw = localStorage.getItem(STORAGE_KEYS.PENDING_CONFIG_SYNC);
+        if (pendingRaw) {
+          try {
+            const pendingSettings = JSON.parse(pendingRaw) as AppSettings;
+            if (pendingSettings && Array.isArray(pendingSettings.memberAccounts)) {
+              await syncConfigToPocketBase(pendingSettings);
+              return;
+            }
+          } catch (pendingErr) {
+            localStorage.removeItem(STORAGE_KEYS.PENDING_CONFIG_SYNC);
+          }
+        }
+
+        // 2. Kein ausstehender Sync -> lade aktuellen Stand aus PocketBase
         const res = await querySipRow(SIP_CONFIG_ROW_ID);
         const data = res ? res.data : null;
         const error = res ? res.error : null;
@@ -237,13 +283,20 @@ export const App: React.FC = () => {
 
         if (data && data.payload) {
           cachedCloudExtraPayloadRef.current = data.payload;
-          applyCloudSettingsPayload(data.payload, data.updated, false);
+          const serverTime = parsePbTimestamp(data.updated);
+          const knownServerTime = parsePbTimestamp(lastAppliedServerUpdatedRef.current);
+          if (knownServerTime > 0 && serverTime > 0 && serverTime < knownServerTime) {
+            // Der Server-Datensatz ist älter als unser zuletzt bestätigter Stand -> lokalen Stand erneut pushen
+            void syncConfigToPocketBase(settingsRef.current);
+          } else {
+            applyCloudSettingsPayload(data.payload, data.updated, true);
+          }
         }
       } catch (err) {
         console.error('[SiP Config Fetch] Unerwarteter Fehler beim Laden der Accounts:', err);
       }
     }
-    fetchUsers();
+    initAndFetchUsers();
 
     const unsubConfig = sipRealtime.onConfigUpdate((payload, recordUpdated) => {
       if (payload && typeof payload === 'object') {
@@ -330,9 +383,17 @@ export const App: React.FC = () => {
     if (res.data?.updated) {
       lastAppliedServerUpdatedRef.current = res.data.updated;
       sipRealtime.markConfigServerUpdated(res.data.updated);
+      try {
+        localStorage.setItem(STORAGE_KEYS.LAST_CONFIG_SERVER_UPDATED, res.data.updated);
+      } catch (e) {}
     }
     if (res.data?.payload) {
       cachedCloudExtraPayloadRef.current = res.data.payload;
+    }
+    if (!pendingSyncSettingsRef.current && settingsRef.current.updatedAt === targetSettings.updatedAt) {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.PENDING_CONFIG_SYNC);
+      } catch (e) {}
     }
   }
 
@@ -393,17 +454,13 @@ export const App: React.FC = () => {
       updatedAt,
     };
 
-    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update)
+    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update + Pending-Sync-Schutz bei F5)
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
-    } catch (storageErr) {
-      console.error('Fehler beim Speichern im LocalStorage:', storageErr);
-    }
+    saveSettingsToLocalStorage(nextSettings, true);
     sipRealtime.broadcastConfigSync(nextSettings);
 
-    // 2. Asynchrones Persistieren in PocketBase mit Fehlerbehandlung
+    // 2. Asynchrones Persistieren in PocketBase (mit keepalive: true gegen Reload-Abbruch)
     try {
       await syncConfigToPocketBase(nextSettings);
     } catch (err) {
@@ -438,17 +495,13 @@ export const App: React.FC = () => {
       updatedAt,
     };
 
-    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update)
+    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update + Pending-Sync-Schutz bei F5)
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
-    } catch (storageErr) {
-      console.error('Fehler beim Speichern im LocalStorage:', storageErr);
-    }
+    saveSettingsToLocalStorage(nextSettings, true);
     sipRealtime.broadcastConfigSync(nextSettings);
 
-    // 2. Asynchrones Persistieren in PocketBase mit Fehlerbehandlung
+    // 2. Asynchrones Persistieren in PocketBase (mit keepalive: true gegen Reload-Abbruch)
     try {
       await syncConfigToPocketBase(nextSettings);
     } catch (err) {
