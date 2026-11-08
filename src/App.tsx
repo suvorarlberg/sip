@@ -72,11 +72,12 @@ export const App: React.FC = () => {
   const settingsRef = useRef<AppSettings>(settings);
   const lastConfigMutationAtRef = useRef<number>(0);
   const isSyncingConfigRef = useRef<boolean>(false);
+  const pendingSyncSettingsRef = useRef<AppSettings | null>(null);
+  const lastAppliedServerUpdatedRef = useRef<string>('');
   const deletedUsernamesRef = useRef<Set<string>>(
     new Set((settings.deletedUsernames || []).map(normalizeUsernameForComparison))
   );
   const cachedCloudExtraPayloadRef = useRef<Record<string, any>>({});
-  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   function nextConfigTimestamp(prevUpdatedAt?: string): string {
     const now = Date.now();
@@ -99,9 +100,16 @@ export const App: React.FC = () => {
       if (Date.now() - lastConfigMutationAtRef.current < 3000) {
         return;
       }
-      const remoteTs = payload.updatedAt || recordUpdated;
+      if (
+        recordUpdated &&
+        lastAppliedServerUpdatedRef.current &&
+        recordUpdated <= lastAppliedServerUpdatedRef.current
+      ) {
+        return;
+      }
+      const remoteTs = payload.updatedAt;
       const localTs = settingsRef.current.updatedAt;
-      if (remoteTs && localTs) {
+      if (!recordUpdated && remoteTs && localTs) {
         const remoteTime = new Date(remoteTs).getTime();
         const localTime = new Date(localTs).getTime();
         if (!isNaN(remoteTime) && !isNaN(localTime) && remoteTime <= localTime) {
@@ -110,11 +118,26 @@ export const App: React.FC = () => {
       }
     }
 
-    if (Array.isArray(payload.deletedUsernames)) {
-      payload.deletedUsernames.forEach((u: string) => {
-        if (u) deletedUsernamesRef.current.add(normalizeUsernameForComparison(u));
+    const remoteDeletedSet = new Set<string>(
+      Array.isArray(payload.deletedUsernames)
+        ? payload.deletedUsernames.filter(Boolean).map(normalizeUsernameForComparison)
+        : []
+    );
+
+    if (Array.isArray(payload.memberAccounts)) {
+      payload.memberAccounts.forEach((acc: MemberAccount) => {
+        if (acc && acc.username) {
+          const norm = normalizeUsernameForComparison(acc.username);
+          if (!remoteDeletedSet.has(norm)) {
+            deletedUsernamesRef.current.delete(norm);
+          }
+        }
       });
     }
+
+    remoteDeletedSet.forEach((norm) => {
+      deletedUsernamesRef.current.add(norm);
+    });
 
     const rawAccounts: MemberAccount[] = Array.isArray(payload.memberAccounts)
       ? payload.memberAccounts
@@ -123,6 +146,11 @@ export const App: React.FC = () => {
     const filteredAccounts = rawAccounts.filter(
       (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
     );
+
+    if (recordUpdated) {
+      lastAppliedServerUpdatedRef.current = recordUpdated;
+      sipRealtime.markConfigServerUpdated(recordUpdated);
+    }
 
     const nextSettings: AppSettings = {
       ...settingsRef.current,
@@ -219,15 +247,54 @@ export const App: React.FC = () => {
 
     const unsubConfig = sipRealtime.onConfigUpdate((payload, recordUpdated) => {
       if (payload && typeof payload === 'object') {
-        cachedCloudExtraPayloadRef.current = payload;
+        cachedCloudExtraPayloadRef.current = {
+          ...cachedCloudExtraPayloadRef.current,
+          ...payload,
+        };
         applyCloudSettingsPayload(payload, recordUpdated, false);
       }
     });
 
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEYS.SETTINGS && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue) as AppSettings;
+          if (parsed && typeof parsed === 'object') {
+            applyCloudSettingsPayload(parsed, undefined, false);
+          }
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     return () => {
       unsubConfig();
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
+
+  // Halte aktuellen Benutzer-State (Rolle, Ablaufdatum, Name) synchron mit Änderungen in settings.memberAccounts
+  useEffect(() => {
+    if (!currentUser) return;
+    const normCurrent = normalizeUsernameForComparison(currentUser.username);
+    const matched = settings.memberAccounts.find(
+      (a) => normalizeUsernameForComparison(a.username) === normCurrent
+    );
+    if (matched) {
+      if (
+        matched.role !== currentUser.role ||
+        matched.name !== currentUser.name ||
+        matched.expiresAt !== currentUser.expiresAt ||
+        matched.password !== currentUser.password ||
+        matched.isExternal !== currentUser.isExternal
+      ) {
+        setCurrentUser(matched);
+        try {
+          localStorage.setItem(STORAGE_KEYS.LOGGED_USER, JSON.stringify(matched));
+        } catch (e) {}
+      }
+    }
+  }, [settings.memberAccounts, currentUser]);
 
   // Initialisiere SiP-Realtime sofort beim Start der App (lädt currentsession0 sofort aus PocketBase)
   useEffect(() => {
@@ -260,15 +327,55 @@ export const App: React.FC = () => {
         new Error('Datenbank-Update für Benutzer-Konfiguration (sipusersconfig0) fehlgeschlagen')
       );
     }
+    if (res.data?.updated) {
+      lastAppliedServerUpdatedRef.current = res.data.updated;
+      sipRealtime.markConfigServerUpdated(res.data.updated);
+    }
     if (res.data?.payload) {
       cachedCloudExtraPayloadRef.current = res.data.payload;
+    }
+  }
+
+  async function syncConfigToPocketBase(targetSettings: AppSettings): Promise<void> {
+    lastConfigMutationAtRef.current = Date.now();
+
+    if (isSyncingConfigRef.current) {
+      pendingSyncSettingsRef.current = targetSettings;
+      return;
+    }
+
+    isSyncingConfigRef.current = true;
+    let currentToSync: AppSettings | null = targetSettings;
+    let lastError: any = null;
+
+    try {
+      while (currentToSync) {
+        const snapshotToSave = currentToSync;
+        pendingSyncSettingsRef.current = null;
+        lastConfigMutationAtRef.current = Date.now();
+
+        try {
+          await persistSettingsToPocketBase(snapshotToSave);
+        } catch (err) {
+          lastError = err;
+          console.error('[SiP Settings Sync] Fehler beim Speichern in PocketBase:', err);
+        }
+
+        lastConfigMutationAtRef.current = Date.now();
+        currentToSync = pendingSyncSettingsRef.current;
+      }
+      if (lastError) {
+        throw lastError;
+      }
+    } finally {
+      lastConfigMutationAtRef.current = Date.now();
+      isSyncingConfigRef.current = false;
     }
   }
 
   async function handleDeleteUserAccount(username: string): Promise<void> {
     const normTarget = normalizeUsernameForComparison(username);
     lastConfigMutationAtRef.current = Date.now();
-    isSyncingConfigRef.current = true;
     deletedUsernamesRef.current.add(normTarget);
 
     const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
@@ -286,30 +393,27 @@ export const App: React.FC = () => {
       updatedAt,
     };
 
+    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update)
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
     try {
-      const syncTask = syncQueueRef.current.then(async () => {
-        lastConfigMutationAtRef.current = Date.now();
-        await persistSettingsToPocketBase(nextSettings);
-      });
-      syncQueueRef.current = syncTask.catch(() => {});
-      await syncTask;
-
-      // Lokalen State erst aktualisieren, nachdem der Datenbank-Aufruf erfolgreich abgeschlossen ist
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+    } catch (storageErr) {
+      console.error('Fehler beim Speichern im LocalStorage:', storageErr);
+    }
+    sipRealtime.broadcastConfigSync(nextSettings);
+
+    // 2. Asynchrones Persistieren in PocketBase mit Fehlerbehandlung
+    try {
+      await syncConfigToPocketBase(nextSettings);
     } catch (err) {
       console.error('[SiP Account Delete] Fehler beim Löschen des Accounts in der Datenbank:', err);
       throw err;
-    } finally {
-      lastConfigMutationAtRef.current = Date.now();
-      isSyncingConfigRef.current = false;
     }
   }
 
   async function handleSaveSettings(newSettings: AppSettings): Promise<void> {
     lastConfigMutationAtRef.current = Date.now();
-    isSyncingConfigRef.current = true;
 
     const currentNormSet = new Set(
       settingsRef.current.memberAccounts.map((a) => normalizeUsernameForComparison(a.username))
@@ -321,46 +425,35 @@ export const App: React.FC = () => {
       }
     });
 
-    const nextNormSet = new Set(
-      newSettings.memberAccounts.map((a) => normalizeUsernameForComparison(a.username))
-    );
-    settingsRef.current.memberAccounts.forEach((acc) => {
-      const norm = normalizeUsernameForComparison(acc.username);
-      if (!nextNormSet.has(norm)) {
-        deletedUsernamesRef.current.add(norm);
-      }
-    });
-
     const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
     const sanitizedAccounts = newSettings.memberAccounts.filter(
       (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
     );
 
     const nextSettings: AppSettings = {
+      ...settingsRef.current,
       ...newSettings,
       memberAccounts: sanitizedAccounts,
       deletedUsernames: Array.from(deletedUsernamesRef.current),
       updatedAt,
     };
 
+    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update)
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
     try {
-      const syncTask = syncQueueRef.current.then(async () => {
-        lastConfigMutationAtRef.current = Date.now();
-        await persistSettingsToPocketBase(nextSettings);
-      });
-      syncQueueRef.current = syncTask.catch(() => {});
-      await syncTask;
-
-      // Lokalen State erst aktualisieren, nachdem der Datenbank-Aufruf erfolgreich abgeschlossen ist
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+    } catch (storageErr) {
+      console.error('Fehler beim Speichern im LocalStorage:', storageErr);
+    }
+    sipRealtime.broadcastConfigSync(nextSettings);
+
+    // 2. Asynchrones Persistieren in PocketBase mit Fehlerbehandlung
+    try {
+      await syncConfigToPocketBase(nextSettings);
     } catch (err) {
       console.error('[SiP Settings Sync] Fehler beim Speichern der Einstellungen in der Datenbank:', err);
       throw err;
-    } finally {
-      lastConfigMutationAtRef.current = Date.now();
-      isSyncingConfigRef.current = false;
     }
   }
 

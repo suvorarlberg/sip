@@ -289,17 +289,17 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     };
 
     const updatedAccounts = [newAccount, ...settings.memberAccounts];
+    setNewName('');
+    setNewUsername('');
+    setNewPassword(generateRandomMemberPassword());
+    setShowAddModal(false);
+    showBanner(`Zugang für „${cleanName}“ erfolgreich erstellt!`);
+
     try {
       await onUpdateSettings({
         ...settings,
         memberAccounts: updatedAccounts,
       });
-
-      setNewName('');
-      setNewUsername('');
-      setNewPassword(generateRandomMemberPassword());
-      setShowAddModal(false);
-      showBanner(`Zugang für „${cleanName}“ erfolgreich erstellt!`);
     } catch (err) {
       console.error('Fehler beim Erstellen des Benutzerzugangs:', err);
       showBanner('Fehler beim Speichern des Zugangs in der Datenbank.');
@@ -320,13 +320,14 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       };
     });
 
+    showBanner(
+      nextRole === 'strategie'
+        ? `„${target.name}“ wurde zur Strategieführung ernannt! (Führungsfunktionen beim Login aktiv)`
+        : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`
+    );
+
     try {
       await onUpdateSettings({ ...settings, memberAccounts: updated });
-      showBanner(
-        nextRole === 'strategie'
-          ? `„${target.name}“ wurde zur Strategieführung ernannt! (Führungsfunktionen beim Login aktiv)`
-          : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`
-      );
     } catch (err) {
       console.error('Fehler beim Ändern der Strategieführungs-Rolle:', err);
       showBanner('Fehler beim Speichern der Rollenänderung.');
@@ -336,6 +337,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   async function handleDeleteUser(username: string) {
     if (!confirm('Diesen Benutzerzugang wirklich unwiderruflich löschen?')) return;
     setDeletingUsername(username);
+    showBanner('Benutzerzugang gelöscht.');
     try {
       if (onDeleteUser) {
         await onDeleteUser(username);
@@ -346,7 +348,6 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
           memberAccounts: updated,
         });
       }
-      showBanner('Benutzerzugang gelöscht.');
     } catch (err) {
       console.error('Fehler beim Löschen des Benutzerzugangs:', err);
       showBanner('Fehler beim Löschen des Zugangs in der Datenbank.');
@@ -362,9 +363,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       const newExp = new Date(baseTime + additionalHours * 3600 * 1000).toISOString();
       return { ...acc, expiresAt: newExp };
     });
+    showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
     try {
       await onUpdateSettings({ ...settings, memberAccounts: updated });
-      showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
     } catch (err) {
       console.error('Fehler beim Verlängern des Benutzerzugangs:', err);
       showBanner('Fehler beim Verlängern der Gültigkeit.');
@@ -380,15 +381,15 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       acc.username === username ? { ...acc, password: cleanPass } : acc
     );
 
+    setEditingPasswordUser(null);
+    setEditingPasswordValue('');
+    showBanner(`Passwort für „${target?.name || username}“ wurde aktualisiert!`);
+
     try {
       await onUpdateSettings({
         ...settings,
         memberAccounts: updated,
       });
-
-      setEditingPasswordUser(null);
-      setEditingPasswordValue('');
-      showBanner(`Passwort für „${target?.name || username}“ wurde aktualisiert!`);
     } catch (err) {
       console.error('Fehler beim Aktualisieren des Passworts:', err);
       showBanner('Fehler beim Speichern des neuen Passworts.');

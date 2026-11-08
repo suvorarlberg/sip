@@ -19,14 +19,15 @@ export { SIP_DATABASE_TABLE };
 
 export type SipRealtimeMessage =
   | { type: 'STATE_SYNC'; session: SipSession }
-  | { type: 'NEW_ACTIVE_ANTRAG'; antragId: string; antrag: SipAntrag }
-  | { type: 'VOTE_REC_CHANGED'; recommendation: VoteRecommendation }
-  | { type: 'ANTRAG_CLAIMED'; antragId: string; antragTitle: string; claimedBy: string }
-  | { type: 'ANTRAG_UNCLAIMED'; antragId: string; antragTitle: string; unclaimedBy: string }
-  | { type: 'ANTRAG_SUBMITTED'; antrag: SipAntrag }
-  | { type: 'ANTRAG_APPROVED'; antrag: SipAntrag }
+  | { type: 'CONFIG_SYNC'; settings: AppSettings }
+  | { type: 'NEW_ACTIVE_ANTRAG'; antragId: string; antrag: SipAntrag; updatedAt?: string }
+  | { type: 'VOTE_REC_CHANGED'; recommendation: VoteRecommendation; updatedAt?: string }
+  | { type: 'ANTRAG_CLAIMED'; antragId: string; antragTitle: string; claimedBy: string; claimedAt?: string }
+  | { type: 'ANTRAG_UNCLAIMED'; antragId: string; antragTitle: string; unclaimedBy: string; updatedAt?: string }
+  | { type: 'ANTRAG_SUBMITTED'; antrag: SipAntrag; updatedAt?: string }
+  | { type: 'ANTRAG_APPROVED'; antrag: SipAntrag; updatedAt?: string }
   | { type: 'ANTRAG_DECIDED'; antragId: string; decision: 'ANGENOMMEN' | 'ABGELEHNT'; decidedAt: string }
-  | { type: 'MEME_ADDED'; meme: SipMeme };
+  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string };
 
 class SipRealtimeService {
   private localChannel: BroadcastChannel | null = null;
@@ -38,11 +39,31 @@ class SipRealtimeService {
   private activeBlurPopupListeners: Set<(antrag: SipAntrag) => void> = new Set();
   private recentNotificationSignatures: Map<string, number> = new Map();
   private isInitialized = false;
+  private isPollingCloud = false;
+  private isFetchingSession = false;
+  private lastKnownSessionServerUpdated = '';
+  private lastKnownConfigServerUpdated = '';
 
   private syncInterval: any = null;
 
   constructor() {
+    this.loadFromStorage();
     this.initLocalChannel();
+  }
+
+  private loadFromStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(SIP_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<SipSession>;
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.antraege)) {
+          this.currentSession = this.mergeWithFreshPreFabs(parsed);
+        }
+      }
+    } catch (err) {
+      // Ignore storage read errors
+    }
   }
 
   private initLocalChannel() {
@@ -55,6 +76,18 @@ class SipRealtimeService {
       } catch (err) {
         console.warn('BroadcastChannel not supported or failed:', err);
       }
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (event) => {
+        if (event.key === SIP_STORAGE_KEY && event.newValue) {
+          try {
+            const parsed = JSON.parse(event.newValue) as SipSession;
+            if (parsed && parsed.updatedAt && parsed.updatedAt > this.currentSession.updatedAt) {
+              this.applyCloudSession(parsed, false);
+            }
+          } catch (e) {}
+        }
+      });
     }
   }
 
@@ -343,12 +376,77 @@ class SipRealtimeService {
       this.isInitialized = true;
       this.setupSupabase(settings);
       this.fetchFromSupabase(settings, false).catch(() => {});
-      
+
       if (!this.syncInterval) {
         this.syncInterval = setInterval(() => {
-          this.fetchFromSupabase(this.cachedSettings || settings, false).catch(() => {});
+          this.pollCloudChanges().catch(() => {});
         }, 2000);
       }
+    }
+  }
+
+  private async pollCloudChanges(): Promise<void> {
+    if (this.isPollingCloud) return;
+    this.isPollingCloud = true;
+    try {
+      // If we haven't loaded the initial session yet, fetch it directly
+      if (!this.hasLoadedCloudSession) {
+        await this.fetchFromPocketBase(this.cachedSettings || undefined, false);
+        return;
+      }
+
+      // Lightweight metadata check (~249 bytes instead of 717 KB)
+      const listRes = await pb.collection(SIP_DATABASE_TABLE).getList(1, 10, {
+        fields: 'id,updated',
+        requestKey: null,
+        query: { _t: Date.now() },
+      });
+
+      const items = listRes?.items || [];
+      const sessionMeta = items.find((item: any) => item.id === SIP_DB_ROW_ID);
+      const configMeta = items.find((item: any) => item.id === SIP_CONFIG_ROW_ID);
+
+      if (
+        sessionMeta &&
+        sessionMeta.updated &&
+        sessionMeta.updated !== this.lastKnownSessionServerUpdated &&
+        !this.isSyncingToSupabase &&
+        Date.now() - this.lastLocalMutationAt >= 2500
+      ) {
+        await this.fetchFromPocketBase(this.cachedSettings || undefined, false);
+      }
+
+      if (
+        configMeta &&
+        configMeta.updated &&
+        configMeta.updated !== this.lastKnownConfigServerUpdated
+      ) {
+        try {
+          const configRecord: any = await pb.collection(SIP_DATABASE_TABLE).getOne(SIP_CONFIG_ROW_ID, {
+            requestKey: null,
+            query: { _t: Date.now() },
+          });
+          if (configRecord && configRecord.payload) {
+            this.lastKnownConfigServerUpdated = configRecord.updated || configMeta.updated;
+            this.configListeners.forEach((cb) => {
+              try {
+                cb(configRecord.payload, configRecord.updated);
+              } catch (err) {
+                console.error('Error in config listener:', err);
+              }
+            });
+          }
+        } catch (configErr) {
+          // Ignore transient config poll errors
+        }
+      }
+    } catch (err) {
+      // Fallback if getList is unavailable
+      if (!this.isSyncingToSupabase && Date.now() - this.lastLocalMutationAt >= 2500) {
+        await this.fetchFromPocketBase(this.cachedSettings || undefined, false).catch(() => {});
+      }
+    } finally {
+      this.isPollingCloud = false;
     }
   }
 
@@ -367,8 +465,16 @@ class SipRealtimeService {
         if (!e || e.action === 'delete') return;
         const record = e.record;
         if (record && (!record.id || record.id === SIP_DB_ROW_ID) && record.payload) {
-          this.setAppState(record.payload, false);
+          if (record.updated) {
+            this.lastKnownSessionServerUpdated = record.updated;
+          }
+          if (!this.isSyncingToSupabase && Date.now() - this.lastLocalMutationAt >= 2000) {
+            this.setAppState(record.payload, false);
+          }
         } else if (record && record.id === SIP_CONFIG_ROW_ID && record.payload) {
+          if (record.updated) {
+            this.lastKnownConfigServerUpdated = record.updated;
+          }
           this.configListeners.forEach((cb) => {
             try {
               cb(record.payload, record.updated);
@@ -426,14 +532,25 @@ class SipRealtimeService {
   }
 
   private notify() {
+    const snapshot: SipSession = { ...this.currentSession };
     this.listeners.forEach((cb) => {
       try {
-        cb(this.currentSession);
+        cb(snapshot);
       } catch (err) {
         console.error('Error in session listener:', err);
       }
     });
     this.saveToStorage();
+  }
+
+  public broadcastConfigSync(settings: AppSettings) {
+    this.broadcastMessage({ type: 'CONFIG_SYNC', settings });
+  }
+
+  public markConfigServerUpdated(updated?: string) {
+    if (updated) {
+      this.lastKnownConfigServerUpdated = updated;
+    }
   }
 
   private triggerNotification(notif: SipNotification) {
@@ -491,9 +608,22 @@ class SipRealtimeService {
         }
         break;
 
+      case 'CONFIG_SYNC':
+        if (msg.settings) {
+          this.configListeners.forEach((cb) => {
+            try {
+              cb(msg.settings, msg.settings.updatedAt);
+            } catch (err) {
+              console.error('Error in config listener:', err);
+            }
+          });
+        }
+        break;
+
       case 'NEW_ACTIVE_ANTRAG': {
         const targetAntrag =
           this.currentSession.antraege.find((a) => a.id === msg.antragId) || msg.antrag;
+        const ts = msg.updatedAt || this.nextTimestamp();
 
         this.currentSession = {
           ...this.currentSession,
@@ -501,7 +631,7 @@ class SipRealtimeService {
           voteRecommendation: {
             type: 'KEINE',
             note: '',
-            updatedAt: this.nextTimestamp(),
+            updatedAt: ts,
             updatedBy: 'Strategieführung',
             isPublished: false,
           },
@@ -509,7 +639,7 @@ class SipRealtimeService {
             ...a,
             isActive: a.id === msg.antragId,
           })),
-          updatedAt: this.nextTimestamp(),
+          updatedAt: ts,
         };
         this.notify();
         this.triggerBlurPopup(targetAntrag);
@@ -526,10 +656,11 @@ class SipRealtimeService {
       }
 
       case 'VOTE_REC_CHANGED': {
+        const ts = msg.updatedAt || msg.recommendation.updatedAt || this.nextTimestamp();
         this.currentSession = {
           ...this.currentSession,
           voteRecommendation: msg.recommendation,
-          updatedAt: this.nextTimestamp(),
+          updatedAt: ts,
         };
         this.notify();
         const voteNotif: SipNotification = {
@@ -544,14 +675,15 @@ class SipRealtimeService {
       }
 
       case 'ANTRAG_CLAIMED': {
+        const ts = msg.claimedAt || this.nextTimestamp();
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
             a.id === msg.antragId
-              ? { ...a, claimedBy: msg.claimedBy, claimedAt: new Date().toISOString() }
+              ? { ...a, claimedBy: msg.claimedBy, claimedAt: ts }
               : a
           ),
-          updatedAt: this.nextTimestamp(),
+          updatedAt: ts,
         };
         this.notify();
         const claimNotif: SipNotification = {
@@ -567,12 +699,13 @@ class SipRealtimeService {
       }
 
       case 'ANTRAG_UNCLAIMED': {
+        const ts = msg.updatedAt || this.nextTimestamp();
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
             a.id === msg.antragId ? { ...a, claimedBy: null, claimedAt: null } : a
           ),
-          updatedAt: this.nextTimestamp(),
+          updatedAt: ts,
         };
         this.notify();
         break;
@@ -581,10 +714,11 @@ class SipRealtimeService {
       case 'ANTRAG_SUBMITTED': {
         const exists = this.currentSession.antraege.some((a) => a.id === msg.antrag.id);
         if (!exists) {
+          const ts = msg.updatedAt || msg.antrag.createdAt || this.nextTimestamp();
           this.currentSession = {
             ...this.currentSession,
             antraege: [msg.antrag, ...this.currentSession.antraege],
-            updatedAt: this.nextTimestamp(),
+            updatedAt: ts,
           };
           this.notify();
           const submitNotif: SipNotification = {
@@ -600,12 +734,13 @@ class SipRealtimeService {
       }
 
       case 'ANTRAG_APPROVED': {
+        const ts = msg.updatedAt || this.nextTimestamp();
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
             a.id === msg.antrag.id ? msg.antrag : a
           ),
-          updatedAt: this.nextTimestamp(),
+          updatedAt: ts,
         };
         this.notify();
         break;
@@ -631,10 +766,11 @@ class SipRealtimeService {
       case 'MEME_ADDED': {
         const exists = this.currentSession.memes.some((m) => m.id === msg.meme.id);
         if (!exists) {
+          const ts = msg.updatedAt || msg.meme.createdAt || this.nextTimestamp();
           this.currentSession = {
             ...this.currentSession,
             memes: [msg.meme, ...this.currentSession.memes],
-            updatedAt: this.nextTimestamp(),
+            updatedAt: ts,
           };
           this.notify();
         }
@@ -1038,7 +1174,6 @@ class SipRealtimeService {
   public async archiveAndClearCurrentSession(settings?: AppSettings): Promise<void> {
     this.lastLocalMutationAt = Date.now();
     const oldSession = { ...this.currentSession };
-    await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
 
     const ts = this.nextTimestamp();
     this.currentSession = {
@@ -1075,6 +1210,8 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(stateSyncMsg, settings);
+
+    await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
     await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
   }
 
@@ -1090,10 +1227,6 @@ class SipRealtimeService {
   ): Promise<void> {
     this.lastLocalMutationAt = Date.now();
     const oldSession = { ...this.currentSession };
-
-    if (!options.skipArchive && (oldSession.antraege.length > 0 || (oldSession.activityLog || []).length > 1)) {
-      await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
-    }
 
     const initialAntraege = (options.antraege || []).map((a) => ({
       ...a,
@@ -1141,6 +1274,10 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(stateSyncMsg, settings);
+
+    if (!options.skipArchive && (oldSession.antraege.length > 0 || (oldSession.activityLog || []).length > 1)) {
+      await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
+    }
     await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
   }
 
@@ -1374,22 +1511,38 @@ class SipRealtimeService {
   }
 
   public async fetchFromPocketBase(_settings?: AppSettings, forceOverwrite = false): Promise<SipSession | null> {
-    if (this.isSyncingToSupabase || (!forceOverwrite && Date.now() - this.lastLocalMutationAt < 2000)) {
+    if (this.isSyncingToSupabase || (!forceOverwrite && Date.now() - this.lastLocalMutationAt < 2500)) {
+      return null;
+    }
+    if (this.isFetchingSession && !forceOverwrite) {
       return null;
     }
 
+    this.isFetchingSession = true;
     const rowId = SIP_DB_ROW_ID;
     let rawRecord: any = null;
     let readError: any = null;
 
     try {
-      rawRecord = await pb.collection(SIP_DATABASE_TABLE).getOne(rowId);
+      rawRecord = await pb.collection(SIP_DATABASE_TABLE).getOne(rowId, {
+        requestKey: null,
+        query: { _t: Date.now() },
+      });
     } catch (err: any) {
       readError = err;
+    } finally {
+      this.isFetchingSession = false;
+    }
+
+    if (!forceOverwrite && (this.isSyncingToSupabase || Date.now() - this.lastLocalMutationAt < 2500)) {
+      return null;
     }
 
     if (!readError && rawRecord) {
       const record = rawRecord as unknown as SipStateRecord;
+      if (record.updated) {
+        this.lastKnownSessionServerUpdated = record.updated;
+      }
       if (record && record.payload) {
         const sessionData = record.payload as unknown as SipSession;
         this.setAppState(sessionData, forceOverwrite);
@@ -1409,13 +1562,18 @@ class SipRealtimeService {
       let createError: any = null;
 
       try {
-        createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj);
+        createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj, {
+          requestKey: null,
+        });
       } catch (err: any) {
         createError = err;
       }
 
       if (!createError && createdRaw) {
         const createdRecord = createdRaw as unknown as SipStateRecord;
+        if (createdRecord.updated) {
+          this.lastKnownSessionServerUpdated = createdRecord.updated;
+        }
         if (createdRecord && createdRecord.payload) {
           const sessionData = createdRecord.payload as unknown as SipSession;
           this.setAppState(sessionData, false);
@@ -1447,7 +1605,13 @@ class SipRealtimeService {
     let updateError: any = null;
 
     try {
-      await pb.collection(SIP_DATABASE_TABLE).update(rowId, recordData);
+      const updated = await pb.collection(SIP_DATABASE_TABLE).update(rowId, recordData, {
+        fields: 'id,updated',
+        requestKey: null,
+      });
+      if (updated && updated.updated) {
+        this.lastKnownSessionServerUpdated = updated.updated;
+      }
     } catch (err: any) {
       updateError = err;
     }
@@ -1464,7 +1628,13 @@ class SipRealtimeService {
       };
 
       try {
-        await pb.collection(SIP_DATABASE_TABLE).create(createObj);
+        const created = await pb.collection(SIP_DATABASE_TABLE).create(createObj, {
+          fields: 'id,updated',
+          requestKey: null,
+        });
+        if (created && created.updated) {
+          this.lastKnownSessionServerUpdated = created.updated;
+        }
       } catch (createErr: any) {
         console.warn('Could not create SiP session in PocketBase:', createErr);
       }
@@ -1494,18 +1664,22 @@ class SipRealtimeService {
       session: targetSession,
     };
 
-    while (currentToSync) {
-      const itemToSync = currentToSync;
-      const newState = itemToSync.session;
-      this.pendingSyncSession = null;
+    try {
+      while (currentToSync) {
+        const itemToSync = currentToSync;
+        const newState = itemToSync.session;
+        this.pendingSyncSession = null;
+        this.lastLocalMutationAt = Date.now();
+
+        await this.persistSingleSessionToPocketBase(newState);
+
+        this.lastLocalMutationAt = Date.now();
+        currentToSync = this.pendingSyncSession;
+      }
+    } finally {
       this.lastLocalMutationAt = Date.now();
-
-      await this.persistSingleSessionToPocketBase(newState);
-
-      currentToSync = this.pendingSyncSession;
+      this.isSyncingToSupabase = false;
     }
-
-    this.isSyncingToSupabase = false;
   }
 
   public async syncSessionToSupabase(settings?: AppSettings, session?: SipSession): Promise<void> {
