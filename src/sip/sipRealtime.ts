@@ -1216,6 +1216,7 @@ class SipRealtimeService {
       title: string;
       content: string;
       author: string;
+      createdBy?: string;
       priority: DirectMessagePriority;
     },
     settings?: AppSettings
@@ -1228,11 +1229,13 @@ class SipRealtimeService {
     let nextList: SipDirectMessage[];
 
     if (data.id && existingList.some((m) => m.id === data.id)) {
+      const prev = existingList.find((m) => m.id === data.id)!;
       savedMsg = {
-        ...existingList.find((m) => m.id === data.id)!,
+        ...prev,
         title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
         content: data.content.trim(),
         author: data.author,
+        createdBy: prev.createdBy || data.createdBy || data.author,
         priority: data.priority,
         status: 'draft',
         updatedAt: ts,
@@ -1244,6 +1247,7 @@ class SipRealtimeService {
         title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
         content: data.content.trim(),
         author: data.author,
+        createdBy: data.createdBy || data.author,
         priority: data.priority,
         status: 'draft',
         createdAt: ts,
@@ -1287,6 +1291,8 @@ class SipRealtimeService {
       title: string;
       content: string;
       author: string;
+      createdBy?: string;
+      publishedBy?: string;
       priority: DirectMessagePriority;
     },
     settings?: AppSettings
@@ -1299,11 +1305,14 @@ class SipRealtimeService {
     let nextList: SipDirectMessage[];
 
     if (data.id && existingList.some((m) => m.id === data.id)) {
+      const prev = existingList.find((m) => m.id === data.id)!;
       publishedMsg = {
-        ...existingList.find((m) => m.id === data.id)!,
+        ...prev,
         title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
         content: data.content.trim(),
         author: data.author,
+        createdBy: prev.createdBy || data.createdBy || data.author,
+        publishedBy: data.publishedBy || data.createdBy || data.author,
         priority: data.priority,
         status: 'published',
         updatedAt: ts,
@@ -1316,6 +1325,8 @@ class SipRealtimeService {
         title: data.title.trim() || 'Wichtige Mitteilung der Strategieführung',
         content: data.content.trim(),
         author: data.author,
+        createdBy: data.createdBy || data.author,
+        publishedBy: data.publishedBy || data.createdBy || data.author,
         priority: data.priority,
         status: 'published',
         createdAt: ts,
@@ -1324,6 +1335,18 @@ class SipRealtimeService {
       };
       nextList = [publishedMsg, ...existingList];
     }
+
+    // Dem erstellenden/veröffentlichenden User soll das Overlay-Fenster NICHT angezeigt werden:
+    // Markiere die Nachricht vorab lokal als geschlossen, bevor this.notify() aufgerufen wird.
+    try {
+      const raw = localStorage.getItem('sip_dismissed_direct_messages_v1');
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      set.add(`${publishedMsg.id}_${publishedMsg.publishedAt || publishedMsg.updatedAt}`);
+      localStorage.setItem(
+        'sip_dismissed_direct_messages_v1',
+        JSON.stringify(Array.from(set).slice(-50))
+      );
+    } catch (e) {}
 
     this.logActivity({
       action: 'DIRECT_MESSAGE_SENT',
@@ -1339,7 +1362,6 @@ class SipRealtimeService {
     };
     this.saveToStorage();
     this.notify();
-    this.triggerDirectMessagePopup(publishedMsg);
 
     this.broadcastMessage(
       {
@@ -1358,7 +1380,8 @@ class SipRealtimeService {
   public async publishExistingDirectMessage(
     messageId: string,
     author: string,
-    settings?: AppSettings
+    settings?: AppSettings,
+    publishedBy?: string
   ): Promise<SipDirectMessage | null> {
     const existing = (this.currentSession.directMessages || []).find((m) => m.id === messageId);
     if (!existing) return null;
@@ -1368,6 +1391,8 @@ class SipRealtimeService {
         title: existing.title,
         content: existing.content,
         author: author || existing.author,
+        createdBy: existing.createdBy || existing.author,
+        publishedBy: publishedBy || author || existing.author,
         priority: existing.priority,
       },
       settings

@@ -61,7 +61,6 @@ import { EditAntragModal } from './EditAntragModal';
 import { MotionParserModal } from './MotionParserModal';
 import { DriveFolderViewer } from './DriveFolderViewer';
 import { MemeFeedTab } from './MemeFeedTab';
-import { StrategyNotesTab } from './StrategyNotesTab';
 import { SipArchiveView } from './SipArchiveView';
 import { downloadSipProtocol } from '../utils/protocolExporter';
 import { cleanSubMotionTitle } from '../utils/sipAutoImporter';
@@ -301,7 +300,7 @@ interface SipMainViewProps {
   isAdminUnlocked: boolean;
 }
 
-export type SipSubTab = 'antraege' | 'past_antraege' | 'strategy' | 'drive' | 'memes' | 'archive';
+export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive';
 
 export const SipMainView: React.FC<SipMainViewProps> = ({
   settings,
@@ -314,11 +313,19 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   const [isStrategieLeader, setIsStrategieLeader] = useState<boolean>(
     () => isAdminUnlocked || currentMember?.role === 'strategie' || currentMember?.role === 'admin'
   );
+  // Nur der echte Administrator (nicht Strategieführung, nicht Mitglieder, nicht Gäste)
+  const isStrictAdmin = isAdminUnlocked || currentMember?.role === 'admin';
 
   const isStrategieLeaderRef = useRef(isStrategieLeader);
   useEffect(() => {
     isStrategieLeaderRef.current = isStrategieLeader;
   }, [isStrategieLeader]);
+
+  useEffect(() => {
+    if (!isStrictAdmin && currentSubTab === 'drive') {
+      setCurrentSubTab('antraege');
+    }
+  }, [isStrictAdmin, currentSubTab]);
 
   // Modals & Popups
   const [activeBlurAntrag, setActiveBlurAntrag] = useState<SipAntrag | null>(null);
@@ -344,7 +351,19 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   // Live Toast Notifications
   const [activeToast, setActiveToast] = useState<SipNotification | null>(null);
 
-  const currentUserName = currentMember?.name || (isAdminUnlocked ? 'Strategieführung' : 'Gast-Mitglied');
+  const currentUserName = currentMember?.name || (isAdminUnlocked ? 'Administrator' : 'Gast-Mitglied');
+  const currentUserIdentifier = currentMember?.username || currentUserName;
+
+  const currentUserIdentityRef = useRef({
+    username: currentMember?.username || '',
+    name: currentUserName,
+  });
+  useEffect(() => {
+    currentUserIdentityRef.current = {
+      username: currentMember?.username || '',
+      name: currentUserName,
+    };
+  }, [currentMember?.username, currentUserName]);
 
   function getDismissedMessageKeys(): Set<string> {
     try {
@@ -367,6 +386,27 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     } catch (e) {}
   }
 
+  function shouldShowDirectMessageOverlay(msg: SipDirectMessage): boolean {
+    const key = `${msg.id}_${msg.publishedAt || msg.updatedAt}`;
+    const dismissed = getDismissedMessageKeys();
+    if (dismissed.has(key)) return false;
+
+    // Dem erstellenden/veröffentlichenden User diese Nachricht NIEMALS als Overlay anzeigen
+    const myUsername = (currentUserIdentityRef.current.username || '').trim().toLowerCase();
+    const myName = (currentUserIdentityRef.current.name || '').trim().toLowerCase();
+    const createdBy = (msg.createdBy || '').trim().toLowerCase();
+    const publishedBy = (msg.publishedBy || '').trim().toLowerCase();
+    const author = (msg.author || '').trim().toLowerCase();
+
+    if (myUsername && (createdBy === myUsername || publishedBy === myUsername)) {
+      return false;
+    }
+    if (myName && (createdBy === myName || publishedBy === myName || author === myName)) {
+      return false;
+    }
+    return true;
+  }
+
   // Initialize Realtime & Pocketbase
   useEffect(() => {
     sipRealtime.init(settings);
@@ -374,10 +414,10 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     const unsubSession = sipRealtime.subscribe((newSession) => {
       setSession(newSession);
       if (newSession.activeDirectMessage) {
-        const key = `${newSession.activeDirectMessage.id}_${newSession.activeDirectMessage.publishedAt || newSession.activeDirectMessage.updatedAt}`;
-        const dismissed = getDismissedMessageKeys();
-        if (!dismissed.has(key)) {
+        if (shouldShowDirectMessageOverlay(newSession.activeDirectMessage)) {
           setActiveDirectMessagePopup(newSession.activeDirectMessage);
+        } else {
+          setActiveDirectMessagePopup(null);
         }
       } else {
         setActiveDirectMessagePopup(null);
@@ -393,9 +433,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     });
 
     const unsubDirectMsg = sipRealtime.onDirectMessagePopup((msg) => {
-      const key = `${msg.id}_${msg.publishedAt || msg.updatedAt}`;
-      const dismissed = getDismissedMessageKeys();
-      if (!dismissed.has(key)) {
+      if (shouldShowDirectMessageOverlay(msg)) {
         setActiveDirectMessagePopup(msg);
       }
     });
@@ -686,10 +724,6 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     sipRealtime.importCombinedAntraegeAndStrategy(imported, strategyNotes, settings);
   }
 
-  function handleUpdateStrategyNotes(notes: string) {
-    sipRealtime.updateStrategyNotes(notes, settings);
-  }
-
   function handleUpdateDriveUrl(url: string) {
     sipRealtime.updateSessionMetadata({ driveFolderUrl: url }, settings);
   }
@@ -712,7 +746,13 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     author: string;
     priority: DirectMessagePriority;
   }) {
-    await sipRealtime.saveDirectMessageDraft(data, settings);
+    await sipRealtime.saveDirectMessageDraft(
+      {
+        ...data,
+        createdBy: currentUserIdentifier,
+      },
+      settings
+    );
   }
 
   async function handlePublishDirectMessage(data: {
@@ -722,11 +762,23 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     author: string;
     priority: DirectMessagePriority;
   }) {
-    await sipRealtime.publishDirectMessage(data, settings);
+    await sipRealtime.publishDirectMessage(
+      {
+        ...data,
+        createdBy: currentUserIdentifier,
+        publishedBy: currentUserIdentifier,
+      },
+      settings
+    );
   }
 
   async function handlePublishExistingDirectMessage(messageId: string) {
-    await sipRealtime.publishExistingDirectMessage(messageId, currentUserName, settings);
+    await sipRealtime.publishExistingDirectMessage(
+      messageId,
+      currentUserName,
+      settings,
+      currentUserIdentifier
+    );
   }
 
   async function handleDeleteDirectMessage(messageId: string) {
@@ -1197,47 +1249,28 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
               )}
             </button>
 
-            {/* 3. Strategie & Redner:innen */}
-            <button
-              type="button"
-              onClick={() => setCurrentSubTab('strategy')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer w-full min-w-0 ${
-                currentSubTab === 'strategy'
-                  ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
-                  : 'text-slate-300 hover:bg-slate-800'
-              } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-start'}`}
-              title="Strategie & Redner:innen"
-            >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <Target className="w-4 h-4 shrink-0 text-purple-400" />
-                {!isSidebarCollapsed && (
-                  <span className="truncate block" title="Strategie & Redner:innen">
-                    Strategie & Redner:innen
-                  </span>
-                )}
-              </div>
-            </button>
-
-            {/* 4. Google Drive Unterlagen */}
-            <button
-              type="button"
-              onClick={() => setCurrentSubTab('drive')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer w-full min-w-0 ${
-                currentSubTab === 'drive'
-                  ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
-                  : 'text-slate-300 hover:bg-slate-800'
-              } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-start'}`}
-              title="Google Drive Unterlagen"
-            >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <FolderOpen className="w-4 h-4 shrink-0 text-amber-400" />
-                {!isSidebarCollapsed && (
-                  <span className="truncate block" title="Google Drive Unterlagen">
-                    Drive Unterlagen
-                  </span>
-                )}
-              </div>
-            </button>
+            {/* 3. Google Drive Unterlagen (Nur für den Admin sichtbar) */}
+            {isStrictAdmin && (
+              <button
+                type="button"
+                onClick={() => setCurrentSubTab('drive')}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer w-full min-w-0 ${
+                  currentSubTab === 'drive'
+                    ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
+                    : 'text-slate-300 hover:bg-slate-800'
+                } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-start'}`}
+                title="Google Drive Unterlagen (Nur Admin)"
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <FolderOpen className="w-4 h-4 shrink-0 text-amber-400" />
+                  {!isSidebarCollapsed && (
+                    <span className="truncate block" title="Google Drive Unterlagen">
+                      Drive Unterlagen
+                    </span>
+                  )}
+                </div>
+              </button>
+            )}
 
             {/* 5. Meme-Feed 🎭 */}
             <button
@@ -2256,22 +2289,8 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
         </div>
       )}
 
-      {/* Subtab 3: Strategie & Taktik */}
-      {currentSubTab === 'strategy' && (
-        <StrategyNotesTab
-          strategyNotes={session.strategyNotes}
-          antraege={session.antraege}
-          isStrategieLeader={isStrategieLeader}
-          onSaveNotes={handleUpdateStrategyNotes}
-          currentUserName={currentUserName}
-          onClaim={handleClaimAntrag}
-          onAssignClaim={(id, name) => handleClaimAntrag(id, name)}
-          onUnclaim={handleUnclaimAntrag}
-        />
-      )}
-
-      {/* Subtab 3: Google Drive & Unterlagen */}
-      {currentSubTab === 'drive' && (
+      {/* Subtab 3: Google Drive & Unterlagen (Nur für Admin zugänglich) */}
+      {currentSubTab === 'drive' && isStrictAdmin && (
         <DriveFolderViewer
           driveFolderUrl={session.driveFolderUrl}
           isStrategieLeader={isStrategieLeader}

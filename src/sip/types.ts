@@ -68,6 +68,9 @@ export interface SipDirectMessage {
   title: string;
   content: string;
   author: string;
+  createdBy?: string;
+  publishedBy?: string;
+  senderClientId?: string;
   priority: DirectMessagePriority;
   status: 'draft' | 'published';
   createdAt: string;

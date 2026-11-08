@@ -657,7 +657,7 @@ export const App: React.FC = () => {
           <SipMainView
             settings={settings}
             currentMember={currentUser}
-            isAdminUnlocked={isAdminUnlocked || currentUser.role === 'strategie' || currentUser.role === 'admin'}
+            isAdminUnlocked={isAdminUnlocked || currentUser.role === 'admin'}
           />
         )}
       </main>
