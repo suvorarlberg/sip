@@ -39,7 +39,10 @@ export async function querySipRow(
   let readError: any = null;
 
   try {
-    rawRecord = await pb.collection(SIP_DATABASE_TABLE).getOne(rowId);
+    rawRecord = await pb.collection(SIP_DATABASE_TABLE).getOne(rowId, {
+      requestKey: null,
+      query: { _t: Date.now() },
+    });
   } catch (err: any) {
     readError = err;
   }
@@ -61,9 +64,12 @@ export async function querySipRow(
     let createError: any = null;
 
     try {
-      createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj);
+      createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj, {
+        requestKey: null,
+      });
     } catch (err: any) {
       createError = err;
+      console.error(`[PocketBase Sync] Fehler beim Erstellen von Datensatz "${rowId}":`, err);
     }
 
     if (!createError && createdRaw) {
@@ -72,6 +78,10 @@ export async function querySipRow(
     }
 
     return { data: null, error: createError, tableUsed: SIP_DATABASE_TABLE };
+  }
+
+  if (readError) {
+    console.error(`[PocketBase Sync] Fehler beim Laden von Datensatz "${rowId}":`, readError);
   }
 
   return { data: null, error: readError, tableUsed: SIP_DATABASE_TABLE };
@@ -95,6 +105,7 @@ export async function upsertSipRow(
 
   if (!row || !row.id) {
     const invalidErr = new Error('Ungültiger Datensatz für Upsert');
+    console.error('[PocketBase Sync] Upsert fehlgeschlagen:', invalidErr);
     return { success: false, error: invalidErr, tableUsed: SIP_DATABASE_TABLE };
   }
 
@@ -109,7 +120,9 @@ export async function upsertSipRow(
   let updateError: any = null;
 
   try {
-    updatedRaw = await pb.collection(SIP_DATABASE_TABLE).update(rowId, recordData);
+    updatedRaw = await pb.collection(SIP_DATABASE_TABLE).update(rowId, recordData, {
+      requestKey: null,
+    });
   } catch (err: any) {
     updateError = err;
   }
@@ -130,9 +143,12 @@ export async function upsertSipRow(
     let createError: any = null;
 
     try {
-      createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj);
+      createdRaw = await pb.collection(SIP_DATABASE_TABLE).create(createObj, {
+        requestKey: null,
+      });
     } catch (err: any) {
       createError = err;
+      console.error(`[PocketBase Sync] Fehler beim Neuanlegen von Datensatz "${rowId}":`, err);
     }
 
     if (!createError && createdRaw) {
@@ -141,6 +157,10 @@ export async function upsertSipRow(
     }
 
     return { success: false, error: createError, tableUsed: SIP_DATABASE_TABLE };
+  }
+
+  if (updateError) {
+    console.error(`[PocketBase Sync] Fehler beim Aktualisieren von Datensatz "${rowId}":`, updateError);
   }
 
   return { success: false, error: updateError, tableUsed: SIP_DATABASE_TABLE };

@@ -29,6 +29,8 @@ export interface AppSettings {
   totpBackupCodes?: string[];
   allowedMembers: string[];
   memberAccounts: MemberAccount[];
+  deletedUsernames?: string[];
+  updatedAt?: string;
   pocketbaseUrl?: string;
 }
 

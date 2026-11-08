@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   User,
   LogOut,
   Star,
 } from 'lucide-react';
-import { AppSettings, DEFAULT_SIP_SETTINGS, isAccountExpired, MemberAccount } from './types';
+import {
+  AppSettings,
+  DEFAULT_SIP_SETTINGS,
+  isAccountExpired,
+  MemberAccount,
+  normalizeUsernameForComparison,
+} from './types';
 import suLogo from './assets/su-logo.png';
 import { SipLoginView } from './components/SipLoginView';
 import { SipAdminView } from './components/SipAdminView';
@@ -63,6 +69,89 @@ export const App: React.FC = () => {
   const [initial2FAVerified, setInitial2FAVerified] = useState(false);
   const [showAdminUnlockModal, setShowAdminUnlockModal] = useState(false);
 
+  const settingsRef = useRef<AppSettings>(settings);
+  const lastConfigMutationAtRef = useRef<number>(0);
+  const isSyncingConfigRef = useRef<boolean>(false);
+  const deletedUsernamesRef = useRef<Set<string>>(
+    new Set((settings.deletedUsernames || []).map(normalizeUsernameForComparison))
+  );
+  const cachedCloudExtraPayloadRef = useRef<Record<string, any>>({});
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  function nextConfigTimestamp(prevUpdatedAt?: string): string {
+    const now = Date.now();
+    const prev = prevUpdatedAt ? new Date(prevUpdatedAt).getTime() : 0;
+    const next = !isNaN(prev) && now <= prev ? prev + 1 : now;
+    return new Date(next).toISOString();
+  }
+
+  function applyCloudSettingsPayload(
+    payload: any,
+    recordUpdated?: string,
+    forceOverwrite = false
+  ) {
+    if (!payload || typeof payload !== 'object') return;
+
+    if (!forceOverwrite) {
+      if (isSyncingConfigRef.current) {
+        return;
+      }
+      if (Date.now() - lastConfigMutationAtRef.current < 3000) {
+        return;
+      }
+      const remoteTs = payload.updatedAt || recordUpdated;
+      const localTs = settingsRef.current.updatedAt;
+      if (remoteTs && localTs) {
+        const remoteTime = new Date(remoteTs).getTime();
+        const localTime = new Date(localTs).getTime();
+        if (!isNaN(remoteTime) && !isNaN(localTime) && remoteTime <= localTime) {
+          return;
+        }
+      }
+    }
+
+    if (Array.isArray(payload.deletedUsernames)) {
+      payload.deletedUsernames.forEach((u: string) => {
+        if (u) deletedUsernamesRef.current.add(normalizeUsernameForComparison(u));
+      });
+    }
+
+    const rawAccounts: MemberAccount[] = Array.isArray(payload.memberAccounts)
+      ? payload.memberAccounts
+      : settingsRef.current.memberAccounts;
+
+    const filteredAccounts = rawAccounts.filter(
+      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+    );
+
+    const nextSettings: AppSettings = {
+      ...settingsRef.current,
+      memberAccounts: filteredAccounts,
+      deletedUsernames: Array.from(deletedUsernamesRef.current),
+      adminPassword: payload.adminPassword || settingsRef.current.adminPassword,
+      strategiePassword: payload.strategiePassword || settingsRef.current.strategiePassword,
+      adminEmail:
+        payload.adminEmail !== undefined ? payload.adminEmail : settingsRef.current.adminEmail,
+      totpSecret:
+        payload.totpSecret !== undefined ? payload.totpSecret : settingsRef.current.totpSecret,
+      totpEnabled:
+        payload.totpEnabled !== undefined ? payload.totpEnabled : settingsRef.current.totpEnabled,
+      totpBackupCodes:
+        payload.totpBackupCodes !== undefined
+          ? payload.totpBackupCodes
+          : settingsRef.current.totpBackupCodes,
+      updatedAt: payload.updatedAt || recordUpdated || settingsRef.current.updatedAt,
+    };
+
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    try {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+    } catch (storageErr) {
+      console.error('Fehler beim Speichern der Einstellungen im LocalStorage:', storageErr);
+    }
+  }
+
   // Automatische Erkennung beim Öffnen über den 2FA-Bestätigungslink aus der E-Mail (wie im Inventurprogramm)
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -108,25 +197,36 @@ export const App: React.FC = () => {
   // Cloud Sync für Einstellungen & Accounts
   useEffect(() => {
     async function fetchUsers() {
-      const res = await querySipRow(SIP_CONFIG_ROW_ID);
-      const data = res ? res.data : null;
-      const error = res ? res.error : null;
+      try {
+        const res = await querySipRow(SIP_CONFIG_ROW_ID);
+        const data = res ? res.data : null;
+        const error = res ? res.error : null;
 
-      if (!error && data && data.payload) {
-        const payload = data.payload;
-        setSettings((prev) => ({
-          ...prev,
-          memberAccounts: payload.memberAccounts || prev.memberAccounts,
-          adminPassword: payload.adminPassword || prev.adminPassword,
-          strategiePassword: payload.strategiePassword || prev.strategiePassword,
-          adminEmail: payload.adminEmail !== undefined ? payload.adminEmail : prev.adminEmail,
-          totpSecret: payload.totpSecret !== undefined ? payload.totpSecret : prev.totpSecret,
-          totpEnabled: payload.totpEnabled !== undefined ? payload.totpEnabled : prev.totpEnabled,
-          totpBackupCodes: payload.totpBackupCodes !== undefined ? payload.totpBackupCodes : prev.totpBackupCodes,
-        }));
+        if (error) {
+          console.error('[SiP Config Fetch] Fehler beim Laden der Benutzer-Konfiguration:', error);
+          return;
+        }
+
+        if (data && data.payload) {
+          cachedCloudExtraPayloadRef.current = data.payload;
+          applyCloudSettingsPayload(data.payload, data.updated, false);
+        }
+      } catch (err) {
+        console.error('[SiP Config Fetch] Unerwarteter Fehler beim Laden der Accounts:', err);
       }
     }
     fetchUsers();
+
+    const unsubConfig = sipRealtime.onConfigUpdate((payload, recordUpdated) => {
+      if (payload && typeof payload === 'object') {
+        cachedCloudExtraPayloadRef.current = payload;
+        applyCloudSettingsPayload(payload, recordUpdated, false);
+      }
+    });
+
+    return () => {
+      unsubConfig();
+    };
   }, []);
 
   // Initialisiere SiP-Realtime sofort beim Start der App (lädt currentsession0 sofort aus PocketBase)
@@ -134,24 +234,18 @@ export const App: React.FC = () => {
     sipRealtime.init(settings);
   }, []);
 
-  async function handleSaveSettings(newSettings: AppSettings) {
-    setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-
-    // Persistiere in PocketBase (sip_state)
-    const res = await querySipRow(SIP_CONFIG_ROW_ID);
-    const data = res ? res.data : null;
-    const oldPayload = data && data.payload ? data.payload : {};
-
+  async function persistSettingsToPocketBase(targetSettings: AppSettings): Promise<void> {
     const newPayload = {
-      ...oldPayload,
-      memberAccounts: newSettings.memberAccounts,
-      adminPassword: newSettings.adminPassword,
-      strategiePassword: newSettings.strategiePassword,
-      adminEmail: newSettings.adminEmail,
-      totpSecret: newSettings.totpSecret,
-      totpEnabled: newSettings.totpEnabled,
-      totpBackupCodes: newSettings.totpBackupCodes,
+      ...cachedCloudExtraPayloadRef.current,
+      memberAccounts: targetSettings.memberAccounts,
+      deletedUsernames: targetSettings.deletedUsernames || [],
+      adminPassword: targetSettings.adminPassword,
+      strategiePassword: targetSettings.strategiePassword,
+      adminEmail: targetSettings.adminEmail,
+      totpSecret: targetSettings.totpSecret,
+      totpEnabled: targetSettings.totpEnabled,
+      totpBackupCodes: targetSettings.totpBackupCodes,
+      updatedAt: targetSettings.updatedAt,
     };
 
     const recordData = {
@@ -159,7 +253,115 @@ export const App: React.FC = () => {
       payload: newPayload,
     };
 
-    await upsertSipRow(recordData);
+    const res = await upsertSipRow(recordData);
+    if (!res.success || res.error) {
+      throw (
+        res.error ||
+        new Error('Datenbank-Update für Benutzer-Konfiguration (sipusersconfig0) fehlgeschlagen')
+      );
+    }
+    if (res.data?.payload) {
+      cachedCloudExtraPayloadRef.current = res.data.payload;
+    }
+  }
+
+  async function handleDeleteUserAccount(username: string): Promise<void> {
+    const normTarget = normalizeUsernameForComparison(username);
+    lastConfigMutationAtRef.current = Date.now();
+    isSyncingConfigRef.current = true;
+    deletedUsernamesRef.current.add(normTarget);
+
+    const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
+    const filteredAccounts = settingsRef.current.memberAccounts.filter(
+      (acc) =>
+        acc.username !== username &&
+        normalizeUsernameForComparison(acc.username) !== normTarget &&
+        !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+    );
+
+    const nextSettings: AppSettings = {
+      ...settingsRef.current,
+      memberAccounts: filteredAccounts,
+      deletedUsernames: Array.from(deletedUsernamesRef.current),
+      updatedAt,
+    };
+
+    try {
+      const syncTask = syncQueueRef.current.then(async () => {
+        lastConfigMutationAtRef.current = Date.now();
+        await persistSettingsToPocketBase(nextSettings);
+      });
+      syncQueueRef.current = syncTask.catch(() => {});
+      await syncTask;
+
+      // Lokalen State erst aktualisieren, nachdem der Datenbank-Aufruf erfolgreich abgeschlossen ist
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+    } catch (err) {
+      console.error('[SiP Account Delete] Fehler beim Löschen des Accounts in der Datenbank:', err);
+      throw err;
+    } finally {
+      lastConfigMutationAtRef.current = Date.now();
+      isSyncingConfigRef.current = false;
+    }
+  }
+
+  async function handleSaveSettings(newSettings: AppSettings): Promise<void> {
+    lastConfigMutationAtRef.current = Date.now();
+    isSyncingConfigRef.current = true;
+
+    const currentNormSet = new Set(
+      settingsRef.current.memberAccounts.map((a) => normalizeUsernameForComparison(a.username))
+    );
+    newSettings.memberAccounts.forEach((acc) => {
+      const norm = normalizeUsernameForComparison(acc.username);
+      if (!currentNormSet.has(norm)) {
+        deletedUsernamesRef.current.delete(norm);
+      }
+    });
+
+    const nextNormSet = new Set(
+      newSettings.memberAccounts.map((a) => normalizeUsernameForComparison(a.username))
+    );
+    settingsRef.current.memberAccounts.forEach((acc) => {
+      const norm = normalizeUsernameForComparison(acc.username);
+      if (!nextNormSet.has(norm)) {
+        deletedUsernamesRef.current.add(norm);
+      }
+    });
+
+    const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
+    const sanitizedAccounts = newSettings.memberAccounts.filter(
+      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+    );
+
+    const nextSettings: AppSettings = {
+      ...newSettings,
+      memberAccounts: sanitizedAccounts,
+      deletedUsernames: Array.from(deletedUsernamesRef.current),
+      updatedAt,
+    };
+
+    try {
+      const syncTask = syncQueueRef.current.then(async () => {
+        lastConfigMutationAtRef.current = Date.now();
+        await persistSettingsToPocketBase(nextSettings);
+      });
+      syncQueueRef.current = syncTask.catch(() => {});
+      await syncTask;
+
+      // Lokalen State erst aktualisieren, nachdem der Datenbank-Aufruf erfolgreich abgeschlossen ist
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(nextSettings));
+    } catch (err) {
+      console.error('[SiP Settings Sync] Fehler beim Speichern der Einstellungen in der Datenbank:', err);
+      throw err;
+    } finally {
+      lastConfigMutationAtRef.current = Date.now();
+      isSyncingConfigRef.current = false;
+    }
   }
 
   async function handleConsumeBackupCode(usedCode: string): Promise<boolean> {
@@ -301,6 +503,7 @@ export const App: React.FC = () => {
           <SipAdminView
             settings={settings}
             onUpdateSettings={handleSaveSettings}
+            onDeleteUser={handleDeleteUserAccount}
             onClose={() => setCurrentView('parliament')}
             initial2FAVerified={initial2FAVerified}
           />

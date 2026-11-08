@@ -48,7 +48,8 @@ import {
 
 interface SipAdminViewProps {
   settings: AppSettings;
-  onUpdateSettings: (newSettings: AppSettings) => void;
+  onUpdateSettings: (newSettings: AppSettings) => Promise<void> | void;
+  onDeleteUser?: (username: string) => Promise<void>;
   onClose: () => void;
   initial2FAVerified?: boolean;
 }
@@ -56,6 +57,7 @@ interface SipAdminViewProps {
 export const SipAdminView: React.FC<SipAdminViewProps> = ({
   settings,
   onUpdateSettings,
+  onDeleteUser,
   onClose,
   initial2FAVerified,
 }) => {
@@ -76,6 +78,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingPasswordUser, setEditingPasswordUser] = useState<string | null>(null);
   const [editingPasswordValue, setEditingPasswordValue] = useState('');
+  const [deletingUsername, setDeletingUsername] = useState<string | null>(null);
 
   // Settings state (General)
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
@@ -261,7 +264,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     return new Date(now + ms).toISOString();
   }
 
-  function handleCreateUser(e: React.FormEvent) {
+  async function handleCreateUser(e: React.FormEvent) {
     e.preventDefault();
     const cleanName = newName.trim();
     if (!cleanName) return;
@@ -286,19 +289,24 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     };
 
     const updatedAccounts = [newAccount, ...settings.memberAccounts];
-    onUpdateSettings({
-      ...settings,
-      memberAccounts: updatedAccounts,
-    });
+    try {
+      await onUpdateSettings({
+        ...settings,
+        memberAccounts: updatedAccounts,
+      });
 
-    setNewName('');
-    setNewUsername('');
-    setNewPassword(generateRandomMemberPassword());
-    setShowAddModal(false);
-    showBanner(`Zugang für „${cleanName}“ erfolgreich erstellt!`);
+      setNewName('');
+      setNewUsername('');
+      setNewPassword(generateRandomMemberPassword());
+      setShowAddModal(false);
+      showBanner(`Zugang für „${cleanName}“ erfolgreich erstellt!`);
+    } catch (err) {
+      console.error('Fehler beim Erstellen des Benutzerzugangs:', err);
+      showBanner('Fehler beim Speichern des Zugangs in der Datenbank.');
+    }
   }
 
-  function handleToggleStrategieRole(username: string) {
+  async function handleToggleStrategieRole(username: string) {
     const target = settings.memberAccounts.find((a) => a.username === username);
     if (!target) return;
     const isNowLeader = target.role === 'strategie';
@@ -312,36 +320,58 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       };
     });
 
-    onUpdateSettings({ ...settings, memberAccounts: updated });
-    showBanner(
-      nextRole === 'strategie'
-        ? `„${target.name}“ wurde zur Strategieführung ernannt! (Führungsfunktionen beim Login aktiv)`
-        : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`
-    );
+    try {
+      await onUpdateSettings({ ...settings, memberAccounts: updated });
+      showBanner(
+        nextRole === 'strategie'
+          ? `„${target.name}“ wurde zur Strategieführung ernannt! (Führungsfunktionen beim Login aktiv)`
+          : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`
+      );
+    } catch (err) {
+      console.error('Fehler beim Ändern der Strategieführungs-Rolle:', err);
+      showBanner('Fehler beim Speichern der Rollenänderung.');
+    }
   }
 
-  function handleDeleteUser(username: string) {
+  async function handleDeleteUser(username: string) {
     if (!confirm('Diesen Benutzerzugang wirklich unwiderruflich löschen?')) return;
-    const updated = settings.memberAccounts.filter((a) => a.username !== username);
-    onUpdateSettings({
-      ...settings,
-      memberAccounts: updated,
-    });
-    showBanner('Benutzerzugang gelöscht.');
+    setDeletingUsername(username);
+    try {
+      if (onDeleteUser) {
+        await onDeleteUser(username);
+      } else {
+        const updated = settings.memberAccounts.filter((a) => a.username !== username);
+        await onUpdateSettings({
+          ...settings,
+          memberAccounts: updated,
+        });
+      }
+      showBanner('Benutzerzugang gelöscht.');
+    } catch (err) {
+      console.error('Fehler beim Löschen des Benutzerzugangs:', err);
+      showBanner('Fehler beim Löschen des Zugangs in der Datenbank.');
+    } finally {
+      setDeletingUsername((prev) => (prev === username ? null : prev));
+    }
   }
 
-  function handleExtendUser(username: string, additionalHours: number) {
+  async function handleExtendUser(username: string, additionalHours: number) {
     const updated = settings.memberAccounts.map((acc) => {
       if (acc.username !== username) return acc;
       const baseTime = acc.expiresAt && !isAccountExpired(acc) ? new Date(acc.expiresAt).getTime() : Date.now();
       const newExp = new Date(baseTime + additionalHours * 3600 * 1000).toISOString();
       return { ...acc, expiresAt: newExp };
     });
-    onUpdateSettings({ ...settings, memberAccounts: updated });
-    showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
+    try {
+      await onUpdateSettings({ ...settings, memberAccounts: updated });
+      showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
+    } catch (err) {
+      console.error('Fehler beim Verlängern des Benutzerzugangs:', err);
+      showBanner('Fehler beim Verlängern der Gültigkeit.');
+    }
   }
 
-  function handleUpdateUserPassword(username: string) {
+  async function handleUpdateUserPassword(username: string) {
     const cleanPass = editingPasswordValue.trim();
     if (!cleanPass) return;
 
@@ -350,14 +380,19 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       acc.username === username ? { ...acc, password: cleanPass } : acc
     );
 
-    onUpdateSettings({
-      ...settings,
-      memberAccounts: updated,
-    });
+    try {
+      await onUpdateSettings({
+        ...settings,
+        memberAccounts: updated,
+      });
 
-    setEditingPasswordUser(null);
-    setEditingPasswordValue('');
-    showBanner(`Passwort für „${target?.name || username}“ wurde aktualisiert!`);
+      setEditingPasswordUser(null);
+      setEditingPasswordValue('');
+      showBanner(`Passwort für „${target?.name || username}“ wurde aktualisiert!`);
+    } catch (err) {
+      console.error('Fehler beim Aktualisieren des Passworts:', err);
+      showBanner('Fehler beim Speichern des neuen Passworts.');
+    }
   }
 
   function handleCopyCredentials(acc: MemberAccount) {
@@ -799,11 +834,16 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
                       <button
                         type="button"
+                        disabled={deletingUsername === acc.username}
                         onClick={() => handleDeleteUser(acc.username)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 disabled:opacity-50 transition cursor-pointer"
                         title="Benutzerzugang löschen"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        {deletingUsername === acc.username ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     </div>
                   </div>

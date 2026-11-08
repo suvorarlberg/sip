@@ -8,7 +8,7 @@ import {
   SipActivityLogEntry,
 } from './types';
 import { AppSettings, SipStateRecord } from '../types';
-import { pb, SIP_DATABASE_TABLE } from '../utils/pocketbaseSync';
+import { pb, SIP_DATABASE_TABLE, SIP_CONFIG_ROW_ID } from '../utils/pocketbaseSync';
 import { archiveCurrentSession } from './utils/archiveService';
 
 export const SIP_STORAGE_KEY = 'sip_session_state_v1';
@@ -33,6 +33,7 @@ class SipRealtimeService {
   private isPocketBaseSubscribed = false;
   private currentSession: SipSession = DEFAULT_SIP_SESSION;
   private listeners: Set<(session: SipSession) => void> = new Set();
+  private configListeners: Set<(payload: any, recordUpdated?: string) => void> = new Set();
   private notificationListeners: Set<(notif: SipNotification) => void> = new Set();
   private activeBlurPopupListeners: Set<(antrag: SipAntrag) => void> = new Set();
   private recentNotificationSignatures: Map<string, number> = new Map();
@@ -367,6 +368,14 @@ class SipRealtimeService {
         const record = e.record;
         if (record && (!record.id || record.id === SIP_DB_ROW_ID) && record.payload) {
           this.setAppState(record.payload, false);
+        } else if (record && record.id === SIP_CONFIG_ROW_ID && record.payload) {
+          this.configListeners.forEach((cb) => {
+            try {
+              cb(record.payload, record.updated);
+            } catch (err) {
+              console.error('Error in config listener:', err);
+            }
+          });
         }
       };
 
@@ -390,6 +399,11 @@ class SipRealtimeService {
     this.listeners.add(cb);
     cb(this.currentSession);
     return () => this.listeners.delete(cb);
+  }
+
+  public onConfigUpdate(cb: (payload: any, recordUpdated?: string) => void): () => void {
+    this.configListeners.add(cb);
+    return () => this.configListeners.delete(cb);
   }
 
   public onNotification(cb: (notif: SipNotification) => void): () => void {
@@ -1378,7 +1392,7 @@ class SipRealtimeService {
       const record = rawRecord as unknown as SipStateRecord;
       if (record && record.payload) {
         const sessionData = record.payload as unknown as SipSession;
-        this.setAppState(sessionData, false);
+        this.setAppState(sessionData, forceOverwrite);
         return sessionData;
       }
       return null;
