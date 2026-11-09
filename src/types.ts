@@ -168,3 +168,58 @@ export const DEFAULT_SIP_SETTINGS: AppSettings = {
   })),
   pocketbaseUrl: 'https://api.sip.schuelerunion-vorarlberg.at',
 };
+
+export type SipRoleKey = 'admin' | 'strategie' | 'mitglied' | 'gast';
+
+export type SipSubTab =
+  | 'antraege'
+  | 'past_antraege'
+  | 'drive'
+  | 'memes'
+  | 'archive';
+
+export type SipTabPermission = {
+  visible: boolean;
+  editable: boolean;
+};
+
+export type SipRoleTabAccess = Record<
+  SipRoleKey,
+  Record<SipSubTab, SipTabPermission>
+>;
+
+export const defaultRoleTabAccess: SipRoleTabAccess = {
+  admin: {
+    antraege: { visible: true, editable: true },
+    past_antraege: { visible: true, editable: true },
+    drive: { visible: true, editable: true },
+    memes: { visible: true, editable: true },
+    archive: { visible: true, editable: true },
+  },
+  strategie: {
+    antraege: { visible: true, editable: true },
+    past_antraege: { visible: true, editable: true },
+    drive: { visible: true, editable: true },
+    memes: { visible: true, editable: true },
+    archive: { visible: true, editable: true },
+  },
+  mitglied: {
+    antraege: { visible: true, editable: true },
+    past_antraege: { visible: true, editable: false },
+    drive: { visible: false, editable: false },
+    memes: { visible: true, editable: false },
+    archive: { visible: false, editable: false },
+  },
+  gast: {
+    antraege: { visible: true, editable: false },
+    past_antraege: { visible: false, editable: false },
+    drive: { visible: false, editable: false },
+    memes: { visible: false, editable: false },
+    archive: { visible: false, editable: false },
+  },
+};
+
+export interface AppSettings {
+  // ...bestehende Felder...
+  roleTabAccess?: SipRoleTabAccess;
+}

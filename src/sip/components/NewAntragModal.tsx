@@ -95,7 +95,7 @@ export const NewAntragModal: React.FC<NewAntragModalProps> = ({
               {(Object.keys(ANTRAG_TYPE_CONFIG) as AntragType[])
                 .filter((t) => {
                   // GO-Anträge sind keine Nebenanträge und können nicht als Nebenantrag geschrieben werden
-                  if (parentAntrag && (t === 'ENDE_DEBATTE' || t === 'ENDE_REDNER' || t === 'HAUPTANTRAG')) {
+                  if (parentAntrag && (t === 'HAUPTANTRAG')) {
                     return false;
                   }
                   return true;

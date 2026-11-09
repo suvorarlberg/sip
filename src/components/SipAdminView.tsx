@@ -17,6 +17,7 @@ import {
   Mail,
   Lock,
   Star,
+  
   StarOff,
   Send,
   AlertCircle,
@@ -30,9 +31,12 @@ import {
 } from 'lucide-react';
 import {
   AppSettings,
+  defaultRoleTabAccess,
   generateRandomMemberPassword,
   isAccountExpired,
   MemberAccount,
+  SipRoleKey,
+  SipSubTab,
 } from '../types';
 import { sendAdmin2FAEmail, verifyAdmin2FACode } from '../utils/pocketbaseSync';
 import {
@@ -82,7 +86,6 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const [editingPasswordValue, setEditingPasswordValue] = useState('');
   const [editingExpirationUser, setEditingExpirationUser] = useState<string | null>(null);
   const [editingExpirationValue, setEditingExpirationValue] = useState('');
-// ...existing code...
   const [deletingUsername, setDeletingUsername] = useState<string | null>(null);
 
   // Settings state (General)
@@ -569,10 +572,45 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     setTwoFactorError(null);
     showBanner('Admin-Passwort, Strategieführungs-Passwort und 2FA-E-Mail wurden sicher aktualisiert!');
   }
+  const roleKeys: SipRoleKey[] = ['admin', 'strategie', 'mitglied', 'gast'];
+  const tabKeys: SipSubTab[] = [
+    'antraege',
+    'past_antraege',
+    'drive',
+    'memes',
+    'archive',
+  ];
 
+  function handleTabPermissionChange(
+    role: SipRoleKey,
+    tab: SipSubTab,
+    field: 'visible' | 'editable',
+    value: boolean
+  ) {
+    const currentAccess = settings.roleTabAccess ?? defaultRoleTabAccess;
+
+    const nextAccess = {
+      ...currentAccess,
+      [role]: {
+        ...currentAccess[role],
+        [tab]: {
+          ...currentAccess[role][tab],
+          [field]: value,
+          ...(field === 'visible' && !value ? { editable: false } : {}),
+        },
+      },
+    };
+
+    void onUpdateSettings({
+      ...settings,
+      roleTabAccess: nextAccess,
+    });
+  }
+
+// ...existing code...
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 space-y-6">
+    <>
       {/* Toast Banner */}
       {bannerMessage && (
         <div className="p-3.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs sm:text-sm font-semibold flex items-center justify-between shadow-xl animate-in fade-in">
@@ -1253,6 +1291,72 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Rollenbasierte Tab-Berechtigungen */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl text-white space-y-4">
+            <h2 className="text-lg font-bold mb-4">Rollenbasierte Tab-Berechtigungen</h2>
+
+            <div className="space-y-4">
+              {roleKeys.map((role) => (
+                <div key={role} className="rounded-2xl border border-slate-700 p-4">
+                  <h3 className="mb-3 text-sm font-bold uppercase text-slate-300">
+                    {role}
+                  </h3>
+
+                  <div className="grid gap-2">
+                    {tabKeys.map((tab) => {
+                      const access =
+                        settings.roleTabAccess?.[role]?.[tab] ??
+                        defaultRoleTabAccess[role][tab];
+
+                      return (
+                        <div
+                          key={`${role}-${tab}`}
+                          className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950 p-2"
+                        >
+                          <span className="text-xs font-semibold text-slate-300">{tab}</span>
+
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-1 text-xs text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={access.visible}
+                                onChange={(e) =>
+                                  handleTabPermissionChange(
+                                    role,
+                                    tab,
+                                    'visible',
+                                    e.target.checked
+                                  )
+                                }
+                              />
+                              sichtbar
+                            </label>
+
+                            <label className="flex items-center gap-1 text-xs text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={access.editable}
+                                onChange={(e) =>
+                                  handleTabPermissionChange(
+                                    role,
+                                    tab,
+                                    'editable',
+                                    e.target.checked
+                                  )
+                                }
+                              />
+                              bearbeitbar
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1362,7 +1466,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     />
                     <button
                       type="submit"
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-slate-950 font-bold text-xs cursor-pointer transition shadow-md shrink-0"
+                      className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer transition shadow-md"
                     >
                       Code prüfen
                     </button>
@@ -1711,6 +1815,6 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+      </>
   );
 };

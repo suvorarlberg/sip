@@ -144,7 +144,14 @@ export const AntragCard: React.FC<AntragCardProps> = ({
         {/* Left: Badges, Author & Title */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-           
+                       {antrag.type !== 'HAUPTANTRAG' && (
+              <span
+                title={typeConfig.description}
+                className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs font-bold ${typeConfig.badgeColor}`}
+              >
+                {typeConfig.label}
+              </span>
+            )}
 
             {antrag.lineOrParagraph && (
               <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
