@@ -1172,40 +1172,40 @@ const visibleSubAntraege = useMemo(
         onUpdateRecommendation={handleVoteRecommendationUpdate}
       />
 
-      {isStrategieLeader && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingDirectMessageDraft(null);
-                setShowDirectMessageModal(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
-            >
-              <Megaphone className="w-4 h-4" />
-              <span>Direktnachricht schreiben</span>
-              {draftDirectMessages.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-slate-950 text-amber-300 text-[10px] font-black">
-                  {draftDirectMessages.length}
-                </span>
-              )}
-            </button>
+      {isStrategyView && (
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="flex items-center gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={() => {
+          setEditingDirectMessageDraft(null);
+          setShowDirectMessageModal(true);
+        }}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
+      >
+        <Megaphone className="w-4 h-4" />
+        <span>Direktnachricht schreiben</span>
+        {draftDirectMessages.length > 0 && (
+          <span className="px-1.5 py-0.5 rounded-full bg-slate-950 text-amber-300 text-[10px] font-black">
+            {draftDirectMessages.length}
+          </span>
+        )}
+      </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setNewAntragPreset(null);
-                setShowNewAntragModal(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Neuen Antrag schreiben</span>
-            </button>
-          </div>
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={() => {
+          setNewAntragPreset(null);
+          setShowNewAntragModal(true);
+        }}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 transition cursor-pointer"
+      >
+        <Plus className="w-4 h-4" />
+        <span>Neuen Antrag schreiben</span>
+      </button>
+    </div>
+  </div>
+)}
 
       {/* Main Content Area with Collapsible Left Sidebar */}
       <div className="flex flex-col md:flex-row items-start gap-5">
