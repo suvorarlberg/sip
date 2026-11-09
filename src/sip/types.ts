@@ -115,6 +115,17 @@ export interface SipArchivedSession {
   sessionData: SipSession;
 }
 
+export interface SipUploadedDocument {
+  id: string;
+  title: string;
+  doc_type: 'antragsmappe' | 'strategie' | 'general';
+  file: string;
+  url: string;
+  size?: number;
+  session_id?: string;
+  createdAt?: string;
+}
+
 export interface SipSession {
   id: string;
   title: string;
@@ -127,6 +138,7 @@ export interface SipSession {
   directMessages?: SipDirectMessage[];
   activeDirectMessage?: SipDirectMessage | null;
   activityLog?: SipActivityLogEntry[];
+  uploadedDocuments?: SipUploadedDocument[];
   updatedAt: string;
 }
 

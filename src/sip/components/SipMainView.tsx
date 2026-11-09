@@ -2310,6 +2310,7 @@ const visibleSubAntraege = useMemo(
         <DriveFolderViewer
           driveFolderUrl={session.driveFolderUrl}
           isStrictAdmin={isStrictAdmin}
+          sessionId={session.id}
           onUpdateFolderUrl={handleUpdateDriveUrl}
           onOpenParser={() => setShowParserModal(true)}
         />

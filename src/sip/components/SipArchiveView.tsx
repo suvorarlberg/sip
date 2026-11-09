@@ -16,8 +16,10 @@ import {
   Sparkles,
   Check,
   Upload,
+  HardDrive,
+  FileUp,
 } from 'lucide-react';
-import { SipArchivedSession, SipSession, SipAntrag, ANTRAG_TYPE_CONFIG } from '../types';
+import { SipArchivedSession, SipSession, SipAntrag, ANTRAG_TYPE_CONFIG, SipUploadedDocument } from '../types';
 import { AppSettings } from '../../types';
 import {
   fetchArchivedSessions,
@@ -31,6 +33,7 @@ import {
   parseAntragsmappeText,
   createHauptantraegeFromParsed,
   mergeHauptAndNebenantraege,
+  executeAutoSiPImport,
 } from '../utils/sipAutoImporter';
 import {
   executeOnlineDriveImport,
@@ -38,6 +41,7 @@ import {
   GoogleDriveFolderManifest,
 } from '../utils/driveFolderCrawler';
 import { extractTextFromPdfArrayBuffer } from '../utils/pdfHelper';
+import { uploadSipDocument } from '../utils/sipDocumentService';
 
 /**
  * Berechnet intelligent den Folgetitel für ein Schüler:innenparlament:
@@ -78,11 +82,13 @@ interface SipArchiveViewProps {
   currentUserName: string;
   onArchiveAndClearSession?: () => Promise<void>;
   onStartNewSession: (options: {
+    id?: string;
     title: string;
     driveFolderUrl: string;
     skipArchive?: boolean;
     antraege?: SipAntrag[];
     strategyNotes?: string;
+    uploadedDocuments?: SipUploadedDocument[];
   }) => Promise<void>;
 }
 
@@ -99,6 +105,13 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState('');
   const [newDriveFolderUrl, setNewDriveFolderUrl] = useState('');
+  const [importSourceMode, setImportSourceMode] = useState<'local' | 'drive'>('local');
+  const [localAntragsmappeFile, setLocalAntragsmappeFile] = useState<File | null>(null);
+  const [localStrategieFiles, setLocalStrategieFiles] = useState<File[]>([]);
+  const [localStrategieFolderName, setLocalStrategieFolderName] = useState<string>('');
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+  const filesInputRef = React.useRef<HTMLInputElement>(null);
+
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [importProgress, setImportProgress] = useState<AutoImportProgress | null>(null);
   const [importResult, setImportResult] = useState<AutoImportResult | null>(null);
@@ -109,6 +122,13 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
   const [manualUploadRequired, setManualUploadRequired] = useState(false);
   const [pendingManifest, setPendingManifest] = useState<GoogleDriveFolderManifest | null>(null);
   const [manualUploadFileName, setManualUploadFileName] = useState<string>('');
+
+  useEffect(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.setAttribute('webkitdirectory', '');
+      folderInputRef.current.setAttribute('directory', '');
+    }
+  }, [showNewSessionModal, importSourceMode]);
 
   useEffect(() => {
     loadArchives();
@@ -345,6 +365,35 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
     }
   }
 
+  async function handleAnalyzeLocalFiles() {
+    if (!localAntragsmappeFile && localStrategieFiles.length === 0) {
+      alert('Bitte wähle die Antragsmappe (.pdf) oder Strategiedateien (.docx) aus.');
+      return;
+    }
+
+    setIsProcessingFiles(true);
+    setImportResult(null);
+    try {
+      const result = await executeAutoSiPImport({
+        antragsmappeFile: localAntragsmappeFile || undefined,
+        files: localStrategieFiles,
+        onProgress: (p) => setImportProgress(p),
+      });
+      setImportResult(result);
+      if (result.success) {
+        setPendingHauptantraege(result.antraege.filter((a) => a.type === 'HAUPTANTRAG'));
+        setPendingNebenantraege(result.antraege.filter((a) => a.type !== 'HAUPTANTRAG'));
+        setPendingStrategyNotes(result.strategyNotes || '');
+      }
+    } catch (err: any) {
+      console.error('Fehler bei der Analyse der lokalen Dateien:', err);
+      alert('Fehler beim Analysieren der Dateien: ' + (err?.message || err));
+      setImportProgress(null);
+    } finally {
+      setIsProcessingFiles(false);
+    }
+  }
+
   async function handleConfirmNewSession(e: React.FormEvent) {
     e.preventDefault();
     if (!newSessionTitle.trim()) {
@@ -356,8 +405,35 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
     try {
       let finalImportResult = importResult;
 
-      // Falls noch nicht auf "Aus Drive laden" geklickt wurde, aber ein Drive-Link eingegeben ist:
-      if (!finalImportResult && newDriveFolderUrl.trim() && pendingHauptantraege.length === 0) {
+      // 1. Falls lokaler Upload aktiv ist und noch nicht manuell analysiert wurde:
+      if (
+        importSourceMode === 'local' &&
+        !finalImportResult &&
+        pendingHauptantraege.length === 0 &&
+        (localAntragsmappeFile || localStrategieFiles.length > 0)
+      ) {
+        try {
+          setIsProcessingFiles(true);
+          finalImportResult = await executeAutoSiPImport({
+            antragsmappeFile: localAntragsmappeFile || undefined,
+            files: localStrategieFiles,
+            onProgress: (p) => setImportProgress(p),
+          });
+          setImportResult(finalImportResult);
+        } catch (err: any) {
+          console.warn('Automatische Analyse der lokalen Dateien fehlgeschlagen:', err);
+        } finally {
+          setIsProcessingFiles(false);
+        }
+      }
+
+      // 2. Falls Drive-Import aktiv ist und noch nicht geladen wurde:
+      if (
+        importSourceMode === 'drive' &&
+        !finalImportResult &&
+        newDriveFolderUrl.trim() &&
+        pendingHauptantraege.length === 0
+      ) {
         try {
           setIsProcessingFiles(true);
           finalImportResult = await executeOnlineDriveImport({
@@ -391,17 +467,60 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
         finalMotions.length
       );
 
+      const newSessionId = `session_${Date.now()}`;
+      const uploadedDocs: SipUploadedDocument[] = [];
+
+      // 3. Echter Upload der Dateien in PocketBase sip_documents:
+      if (importSourceMode === 'local') {
+        if (localAntragsmappeFile) {
+          try {
+            const doc = await uploadSipDocument({
+              file: localAntragsmappeFile,
+              docType: 'antragsmappe',
+              sessionId: newSessionId,
+              title: localAntragsmappeFile.name,
+            });
+            uploadedDocs.push(doc);
+          } catch (uploadErr) {
+            console.warn('Fehler beim Backend-Upload der Antragsmappe:', uploadErr);
+          }
+        }
+
+        for (const sFile of localStrategieFiles) {
+          try {
+            const doc = await uploadSipDocument({
+              file: sFile,
+              docType: 'strategie',
+              sessionId: newSessionId,
+              title: sFile.name,
+            });
+            uploadedDocs.push(doc);
+          } catch (uploadErr) {
+            console.warn('Fehler beim Backend-Upload der Strategiedatei ' + sFile.name + ':', uploadErr);
+          }
+        }
+      }
+
       await onStartNewSession({
+        id: newSessionId,
         title: newSessionTitle.trim(),
         driveFolderUrl: newDriveFolderUrl.trim(),
         skipArchive: isCurrentSessionAlreadyArchived,
         antraege: finalMotions,
         strategyNotes: finalImportResult?.strategyNotes || pendingStrategyNotes || '',
+        uploadedDocuments: uploadedDocs,
       });
       setShowNewSessionModal(false);
       setNewSessionTitle('');
       setNewDriveFolderUrl('');
+      setLocalAntragsmappeFile(null);
+      setLocalStrategieFiles([]);
+      setLocalStrategieFolderName('');
       const importedMsg = finalImportResult ? `\n\n${finalImportResult.message}` : '';
+      const docMsg =
+        uploadedDocs.length > 0
+          ? `\n${uploadedDocs.length} Datei(en) sicher im Backend gespeichert.`
+          : '';
       setImportResult(null);
       setPendingHauptantraege([]);
       setPendingNebenantraege([]);
@@ -413,7 +532,7 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
           isCurrentSessionAlreadyArchived
             ? 'Das vorherige SiP war bereits archiviert.'
             : 'Das vorherige SiP wurde im Archiv gesichert.'
-        }${importedMsg}`
+        }${importedMsg}${docMsg}`
       );
     } finally {
       setIsSubmitting(false);
@@ -640,119 +759,385 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
                 </div>
               </div>
 
-              {/* Google Drive Ordner & Online-Import */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-slate-950 to-indigo-950/40 border border-purple-500/40 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
-                    Online-Import aus Google Drive
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Google Drive Ordner (Link):
+              {/* Import-Modus Auswahl: Lokaler Upload vs Google Drive */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Antragsmappe & Strategie importieren:
                   </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                        <FolderOpen className="w-4 h-4" />
-                      </div>
-                      <input
-                        type="url"
-                        value={newDriveFolderUrl}
-                        onChange={(e) => {
-                          setNewDriveFolderUrl(e.target.value);
-                          setImportResult(null);
-                          setManualUploadRequired(false);
-                          setPendingManifest(null);
-                        }}
-                        placeholder="https://drive.google.com/drive/folders/..."
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-
+                  <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800">
                     <button
                       type="button"
-                      disabled={isProcessingFiles || !newDriveFolderUrl.trim()}
-                      onClick={() => handleOnlineDriveImport()}
-                      className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-purple-600/30 transition cursor-pointer shrink-0"
+                      onClick={() => {
+                        setImportSourceMode('local');
+                        setImportResult(null);
+                        setPendingHauptantraege([]);
+                        setPendingNebenantraege([]);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        importSourceMode === 'local'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
                     >
-                      <Sparkles className="w-4 h-4" />
-                      <span>{isProcessingFiles ? 'Lädt online...' : 'Dokumente online aus Drive laden'}</span>
+                      <HardDrive className="w-3.5 h-3.5" />
+                      <span>Lokaler Upload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportSourceMode('drive');
+                        setImportResult(null);
+                        setPendingHauptantraege([]);
+                        setPendingNebenantraege([]);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        importSourceMode === 'drive'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Google Drive</span>
                     </button>
                   </div>
                 </div>
 
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Greift online direkt über den eingefügten Link auf den freigegebenen Google Drive-Ordner zu. Das Programm lädt vollautomatisch die <strong>Antragsmappe (.pdf)</strong> und die Strategiedateien aus dem Unterordner <strong>„Strategie“ (.docx)</strong> herunter und kombiniert diese Antrag für Antrag. <em>Alle anderen Dateien und Ordner werden automatisch ignoriert.</em>
-                </p>
-
-                {/* Fallback auf manuellen Upload (Der Lebensretter) */}
-                {manualUploadRequired && !importResult && (
-                  <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-200 space-y-3 animate-in fade-in">
-                    <div className="flex items-start gap-3">
-                      <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5 border border-amber-500/30">
-                        <AlertTriangle className="w-5 h-5" />
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="font-bold text-sm text-amber-300">
-                          Google blockiert den automatischen Download der Antragsmappe. Bitte lade die Datei hier manuell hoch.
-                        </h4>
-                        <p className="text-xs text-slate-300 leading-relaxed">
-                          Google Drive verweigert den automatischen Browser-Download (Anti-Bot / HTTP 403).
-                          {manualUploadFileName ? ` Erwartet: „${manualUploadFileName}“. ` : ' '}
-                          Die Strategiedateien aus Google Drive werden anschließend automatisch mit der Mappe zusammengeführt.
-                        </p>
+                {/* 1. LOKALER UPLOAD */}
+                {importSourceMode === 'local' && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/30 via-slate-950 to-slate-900 border border-amber-500/40 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                          Direkter Datei-Upload vom Computer (im Backend gespeichert)
+                        </span>
                       </div>
                     </div>
 
-                    <div className="pt-1">
-                      <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-500/50 hover:border-amber-400 bg-slate-950/80 hover:bg-slate-950 rounded-2xl p-4 cursor-pointer transition group shadow-inner">
-                        <Upload className="w-7 h-7 text-amber-400 mb-1.5 group-hover:scale-110 transition-transform" />
-                        <span className="text-xs sm:text-sm font-bold text-white mb-0.5">
-                          Antragsmappe (.pdf) auswählen
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          Hier klicken, um die Datei vom Rechner hochzuladen
-                        </span>
-                        <input
-                          type="file"
-                          accept=".pdf"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              await handleManualPdfSelected(file);
-                            }
-                          }}
-                        />
-                      </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {/* Box 1: Antragsmappe PDF */}
+                      <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between gap-2.5">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <FileText className="w-4 h-4 text-sky-400" />
+                              <span>1. SiP Antragsmappe (.pdf)</span>
+                            </span>
+                            {localAntragsmappeFile && (
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold">
+                                Bereit
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Offizielle Antragsmappe als PDF. Die Geschäftsordnung (GO) am Ende wird automatisch ignoriert.
+                          </p>
+                        </div>
+
+                        {localAntragsmappeFile ? (
+                          <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-500/40 flex items-center justify-between gap-2">
+                            <div className="truncate min-w-0">
+                              <span className="text-xs font-bold text-emerald-300 block truncate">
+                                📄 {localAntragsmappeFile.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {(localAntragsmappeFile.size / 1024 / 1024).toFixed(2)} MB
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLocalAntragsmappeFile(null);
+                                setImportResult(null);
+                              }}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-900 cursor-pointer"
+                              title="Datei entfernen"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center border border-dashed border-sky-500/40 hover:border-sky-400 bg-slate-950/70 hover:bg-slate-950 rounded-xl p-3 cursor-pointer transition group">
+                            <FileUp className="w-5 h-5 text-sky-400 mb-1 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-slate-200">
+                              Antragsmappe auswählen
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Klicken zum Durchsuchen (.pdf)
+                            </span>
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setLocalAntragsmappeFile(file);
+                                  setImportResult(null);
+                                }
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      {/* Box 2: Strategieordner DOCX */}
+                      <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between gap-2.5">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <FolderOpen className="w-4 h-4 text-purple-400" />
+                              <span>2. Strategieordner (.docx)</span>
+                            </span>
+                            {localStrategieFiles.length > 0 && (
+                              <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-md font-bold">
+                                {localStrategieFiles.length} Datei(en)
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Wähle den Ordner „Strategie“ als Ganzes oder markiere mehrere Word-Dateien.
+                          </p>
+                        </div>
+
+                        {localStrategieFiles.length > 0 ? (
+                          <div className="p-2.5 rounded-xl bg-slate-950 border border-purple-500/40 flex items-center justify-between gap-2">
+                            <div className="truncate min-w-0">
+                              <span className="text-xs font-bold text-purple-300 block truncate">
+                                📁 {localStrategieFolderName || 'Strategieordner'}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {localStrategieFiles.length} Word-Dateien erkannt
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLocalStrategieFiles([]);
+                                setLocalStrategieFolderName('');
+                                setImportResult(null);
+                              }}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-900 cursor-pointer"
+                              title="Dateien entfernen"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              ref={folderInputRef}
+                              type="file"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []);
+                                const wordFiles = files.filter((f) => {
+                                  const n = f.name.toLowerCase();
+                                  return (
+                                    (n.endsWith('.docx') || n.endsWith('.doc')) &&
+                                    !f.name.startsWith('~$') &&
+                                    !f.name.startsWith('.')
+                                  );
+                                });
+                                if (wordFiles.length > 0) {
+                                  setLocalStrategieFiles(wordFiles);
+                                  const folder =
+                                    files[0]?.webkitRelativePath?.split('/')[0] || 'Strategie';
+                                  setLocalStrategieFolderName(folder);
+                                  setImportResult(null);
+                                } else if (files.length > 0) {
+                                  alert('Keine .docx Word-Dateien im gewählten Ordner gefunden.');
+                                }
+                              }}
+                            />
+                            <input
+                              ref={filesInputRef}
+                              type="file"
+                              multiple
+                              accept=".docx,.doc,.txt"
+                              className="hidden"
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []).filter(
+                                  (f) => !f.name.startsWith('~$') && !f.name.startsWith('.')
+                                );
+                                if (files.length > 0) {
+                                  setLocalStrategieFiles(files);
+                                  setLocalStrategieFolderName(`${files.length} Word-Dateien`);
+                                  setImportResult(null);
+                                }
+                              }}
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => folderInputRef.current?.click()}
+                              className="flex-1 flex flex-col items-center justify-center border border-dashed border-purple-500/40 hover:border-purple-400 bg-slate-950/70 hover:bg-slate-950 rounded-xl p-3 cursor-pointer transition group"
+                            >
+                              <FolderOpen className="w-5 h-5 text-purple-400 mb-1 group-hover:scale-110 transition-transform" />
+                              <span className="text-xs font-bold text-slate-200">
+                                Ordner auswählen
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                Ganzer Ordner
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => filesInputRef.current?.click()}
+                              className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-700 hover:border-slate-500 bg-slate-950/70 hover:bg-slate-950 rounded-xl p-3 cursor-pointer transition group"
+                            >
+                              <FileUp className="w-5 h-5 text-slate-400 mb-1 group-hover:scale-110 transition-transform" />
+                              <span className="text-xs font-bold text-slate-300">
+                                Dateien wählen
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                Einzelne .docx
+                              </span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Analyse Button */}
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-[11px] text-slate-400">
+                        Dateien werden im Browser analysiert & anschließend sicher im PocketBase-Server gespeichert.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={
+                          isProcessingFiles ||
+                          (!localAntragsmappeFile && localStrategieFiles.length === 0)
+                        }
+                        onClick={handleAnalyzeLocalFiles}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition cursor-pointer shrink-0"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>{isProcessingFiles ? 'Analysiere...' : 'Dateien analysieren & prüfen'}</span>
+                      </button>
                     </div>
                   </div>
                 )}
 
-                {/* Ladebalken während des Online-Downloads / Imports */}
+                {/* 2. GOOGLE DRIVE IMPORT */}
+                {importSourceMode === 'drive' && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-slate-950 to-indigo-950/40 border border-purple-500/40 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                        Online-Import aus Google Drive
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Google Drive Ordner (Link):
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <FolderOpen className="w-4 h-4" />
+                          </div>
+                          <input
+                            type="url"
+                            value={newDriveFolderUrl}
+                            onChange={(e) => {
+                              setNewDriveFolderUrl(e.target.value);
+                              setImportResult(null);
+                              setManualUploadRequired(false);
+                              setPendingManifest(null);
+                            }}
+                            placeholder="https://drive.google.com/drive/folders/..."
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isProcessingFiles || !newDriveFolderUrl.trim()}
+                          onClick={() => handleOnlineDriveImport()}
+                          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-purple-600/30 transition cursor-pointer shrink-0"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>{isProcessingFiles ? 'Lädt online...' : 'Dokumente online aus Drive laden'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Greift online direkt über den eingefügten Link auf den freigegebenen Google Drive-Ordner zu. Das Programm lädt vollautomatisch die <strong>Antragsmappe (.pdf)</strong> und die Strategiedateien aus dem Unterordner <strong>„Strategie“ (.docx)</strong> herunter und kombiniert diese Antrag für Antrag. <em>Alle anderen Dateien und Ordner werden automatisch ignoriert.</em>
+                    </p>
+
+                    {/* Fallback auf manuellen Upload (Der Lebensretter) */}
+                    {manualUploadRequired && !importResult && (
+                      <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-200 space-y-3 animate-in fade-in">
+                        <div className="flex items-start gap-3">
+                          <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5 border border-amber-500/30">
+                            <AlertTriangle className="w-5 h-5" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="font-bold text-sm text-amber-300">
+                              Google blockiert den automatischen Download der Antragsmappe. Bitte lade die Datei hier manuell hoch.
+                            </h4>
+                            <p className="text-xs text-slate-300 leading-relaxed">
+                              Google Drive verweigert den automatischen Browser-Download (Anti-Bot / HTTP 403).
+                              {manualUploadFileName ? ` Erwartet: „${manualUploadFileName}“. ` : ' '}
+                              Die Strategiedateien aus Google Drive werden anschließend automatisch mit der Mappe zusammengeführt.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-1">
+                          <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-500/50 hover:border-amber-400 bg-slate-950/80 hover:bg-slate-950 rounded-2xl p-4 cursor-pointer transition group shadow-inner">
+                            <Upload className="w-7 h-7 text-amber-400 mb-1.5 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs sm:text-sm font-bold text-white mb-0.5">
+                              Antragsmappe (.pdf) auswählen
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              Hier klicken, um die Datei vom Rechner hochzuladen
+                            </span>
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  await handleManualPdfSelected(file);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Gemeinsamer Ladebalken während Analyse / Upload */}
                 {isProcessingFiles && importProgress && (
-                  <div className="p-4 rounded-2xl bg-slate-900/90 border border-purple-500/40 space-y-2.5 animate-in fade-in">
+                  <div className="p-4 rounded-2xl bg-slate-900/90 border border-amber-500/40 space-y-2.5 animate-in fade-in">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-purple-300 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-purple-400 animate-spin" />
+                      <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
                         <span>
                           {importProgress.currentMotionNumber
                             ? `Lade Antrag ${importProgress.currentMotionNumber} von ${importProgress.totalMotions}...`
-                            : 'Online-Abruf läuft...'}
+                            : 'Verarbeitung läuft...'}
                         </span>
                       </span>
-                      <span className="font-mono font-bold text-white bg-purple-900/60 px-2 py-0.5 rounded-lg border border-purple-500/30">
+                      <span className="font-mono font-bold text-white bg-slate-950 px-2 py-0.5 rounded-lg border border-amber-500/30">
                         {importProgress.percent}%
                       </span>
                     </div>
 
-                    {/* Ladebalken */}
                     <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5 shadow-inner">
                       <div
-                        className="bg-gradient-to-r from-purple-500 via-sky-500 to-emerald-400 h-full rounded-full transition-all duration-200 ease-out shadow-sm shadow-purple-500/50"
+                        className="bg-gradient-to-r from-amber-500 via-sky-500 to-emerald-400 h-full rounded-full transition-all duration-200 ease-out shadow-sm shadow-amber-500/50"
                         style={{ width: `${importProgress.percent}%` }}
                       />
                     </div>
@@ -763,7 +1148,7 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
                   </div>
                 )}
 
-                {/* Erfolgsmeldung nach Upload */}
+                {/* Erfolgsmeldung nach Upload / Analyse */}
                 {importResult && !isProcessingFiles && (
                   <div
                     className={`p-4 rounded-2xl border text-xs leading-relaxed flex items-start gap-3 animate-in fade-in ${
@@ -780,7 +1165,7 @@ export const SipArchiveView: React.FC<SipArchiveViewProps> = ({
                           : 'Hinweis beim Import:'}
                       </span>
                       <span className="text-slate-300 block">
-                        {importResult.summary.hauptAntraegeCount} Hauptanträge und {importResult.summary.subAntraegeCount} Nebenanträge wurden online zusammengesteckt.
+                        {importResult.summary.hauptAntraegeCount} Hauptanträge und {importResult.summary.subAntraegeCount} Nebenanträge wurden zusammengestellt.
                         {importResult.summary.goExcluded && ' Die Geschäftsordnung am Schluss wurde automatisch ignoriert.'}
                       </span>
                     </div>

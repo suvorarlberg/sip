@@ -8,6 +8,7 @@ import {
   SipActivityLogEntry,
   SipDirectMessage,
   DirectMessagePriority,
+  SipUploadedDocument,
 } from './types';
 import { AppSettings, SipStateRecord } from '../types';
 import {
@@ -1906,11 +1907,13 @@ class SipRealtimeService {
 
   public async startNewSession(
     options: {
+      id?: string;
       title: string;
       driveFolderUrl?: string;
       skipArchive?: boolean;
       antraege?: SipAntrag[];
       strategyNotes?: string;
+      uploadedDocuments?: SipUploadedDocument[];
     },
     settings?: AppSettings
   ): Promise<void> {
@@ -1927,7 +1930,7 @@ class SipRealtimeService {
     const ts = this.nextTimestamp();
 
     this.currentSession = {
-      id: `session_${Date.now()}`,
+      id: options.id || `session_${Date.now()}`,
       title: options.title.trim() || 'Neues Schüler:innenparlament (SiP)',
       driveFolderUrl: (options.driveFolderUrl || '').trim(),
       strategyNotes: options.strategyNotes || '',
@@ -1940,6 +1943,7 @@ class SipRealtimeService {
         isPublished: false,
       },
       antraege: initialAntraege,
+      uploadedDocuments: options.uploadedDocuments || [],
       memes: [],
       activityLog: [
         {
@@ -1951,7 +1955,11 @@ class SipRealtimeService {
             initialAntraege.length > 0
               ? ` Automatischer Import: ${hauptCount} Hauptanträge und ${subCount} Nebenanträge synchronisiert.`
               : ' Kategorien geleert.'
-          } Drive-Ordner: ${options.driveFolderUrl?.trim() || 'noch keiner hinterlegt'}.`,
+          } Drive-Ordner: ${options.driveFolderUrl?.trim() || 'noch keiner hinterlegt'}.${
+            (options.uploadedDocuments || []).length > 0
+              ? ` ${(options.uploadedDocuments || []).length} Dokumente lokal ins Backend hochgeladen.`
+              : ''
+          }`,
         },
       ],
       updatedAt: ts,
@@ -2118,6 +2126,27 @@ class SipRealtimeService {
     this.currentSession = {
       ...this.currentSession,
       ...metadata,
+      updatedAt: this.nextTimestamp(),
+    };
+    this.saveToStorage();
+    this.notify();
+
+    const msg: SipRealtimeMessage = {
+      type: 'STATE_SYNC',
+      session: this.currentSession,
+    };
+    this.broadcastMessage(msg, settings);
+    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+  }
+
+  public async updateUploadedDocuments(
+    docs: SipUploadedDocument[],
+    settings?: AppSettings
+  ) {
+    this.lastLocalMutationAt = Date.now();
+    this.currentSession = {
+      ...this.currentSession,
+      uploadedDocuments: docs,
       updatedAt: this.nextTimestamp(),
     };
     this.saveToStorage();
