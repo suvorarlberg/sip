@@ -12,14 +12,14 @@ import {
 
 interface DriveFolderViewerProps {
   driveFolderUrl: string;
-  isStrategieLeader: boolean;
+  isStrictAdmin: boolean;
   onUpdateFolderUrl: (url: string) => void;
   onOpenParser: () => void;
 }
 
 export const DriveFolderViewer: React.FC<DriveFolderViewerProps> = ({
   driveFolderUrl,
-  isStrategieLeader,
+  isStrictAdmin,
   onUpdateFolderUrl,
   onOpenParser,
 }) => {
@@ -68,7 +68,7 @@ export const DriveFolderViewer: React.FC<DriveFolderViewerProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {isStrategieLeader && (
+          {isStrictAdmin && (
             <button
               type="button"
               onClick={() => setIsEditing(!isEditing)}

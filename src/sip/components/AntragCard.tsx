@@ -144,11 +144,7 @@ export const AntragCard: React.FC<AntragCardProps> = ({
         {/* Left: Badges, Author & Title */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${typeConfig.badgeColor}`}
-            >
-              {typeConfig.shortLabel}
-            </span>
+           
 
             {antrag.lineOrParagraph && (
               <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -439,7 +435,7 @@ export const AntragCard: React.FC<AntragCardProps> = ({
                         onActivate(antrag);
                       }}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-slate-950 font-bold text-xs shadow-md shadow-sky-500/25 transition cursor-pointer"
-                      title="Hauptantrag im Plenum aufrufen (Bestätigungsfenster)"
+                      title="Antrag im Plenum aufrufen (Bestätigungsfenster)"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       <span>Aufrufen</span>

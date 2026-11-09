@@ -78,6 +78,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingPasswordUser, setEditingPasswordUser] = useState<string | null>(null);
   const [editingPasswordValue, setEditingPasswordValue] = useState('');
+  const [editingExpirationUser, setEditingExpirationUser] = useState<string | null>(null);
+  const [editingExpirationValue, setEditingExpirationValue] = useState('');
+// ...existing code...
   const [deletingUsername, setDeletingUsername] = useState<string | null>(null);
 
   // Settings state (General)
@@ -361,16 +364,47 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   async function handleExtendUser(username: string, additionalHours: number) {
     const updated = settings.memberAccounts.map((acc) => {
       if (acc.username !== username) return acc;
-      const baseTime = acc.expiresAt && !isAccountExpired(acc) ? new Date(acc.expiresAt).getTime() : Date.now();
+
+      const baseTime =
+        acc.expiresAt && !isAccountExpired(acc)
+          ? new Date(acc.expiresAt).getTime()
+          : Date.now();
       const newExp = new Date(baseTime + additionalHours * 3600 * 1000).toISOString();
+
       return { ...acc, expiresAt: newExp };
     });
+
     showBanner(`Gültigkeit um +${additionalHours} Stunden verlängert.`);
     try {
       await onUpdateSettings({ ...settings, memberAccounts: updated });
     } catch (err) {
       console.error('Fehler beim Verlängern des Benutzerzugangs:', err);
       showBanner('Fehler beim Verlängern der Gültigkeit.');
+    }
+  }
+
+  function toDateTimeLocal(value: string | null | undefined): string {
+    if (!value) return '';
+    const date = new Date(value);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  }
+
+  async function handleSetExpiration(username: string, value: string | null) {
+    const updated = settings.memberAccounts.map((acc) =>
+      acc.username === username
+        ? { ...acc, expiresAt: value ? new Date(value).toISOString() : null }
+        : acc
+    );
+
+    try {
+      await onUpdateSettings({ ...settings, memberAccounts: updated });
+      setEditingExpirationUser(null);
+      showBanner(value ? 'Ablaufzeit aktualisiert.' : 'Zugang auf unbegrenzt gesetzt.');
+    } catch (err) {
+      console.error('Fehler beim Ändern der Ablaufzeit:', err);
+      showBanner('Fehler beim Speichern der Ablaufzeit.');
     }
   }
 
@@ -785,7 +819,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                         <span>
                           {isExpired
                             ? 'Abgelaufen'
-                            : `Bis ${new Date(acc.expiresAt).toLocaleTimeString([], {
+                            : `Bis ${new Date(acc.expiresAt).toLocaleDateString('de-AT')} · ${new Date(acc.expiresAt).toLocaleTimeString('de-AT', {
                                 hour: '2-digit',
                                 minute: '2-digit',
                               })} Uhr`}
@@ -842,6 +876,17 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                           >
                             +24 Std.
                           </button>
+
+                          <button
+                        type="button"
+                        onClick={() => {
+                          setEditingExpirationUser(acc.username);
+                          setEditingExpirationValue(toDateTimeLocal(acc.expiresAt));
+                        }}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                      >
+                        mehr...
+                      </button>
                         </>
                       )}
 
@@ -859,6 +904,38 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                         )}
                       </button>
                     </div>
+                     {editingExpirationUser === acc.username && (
+                      <div className="w-full flex flex-wrap items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={editingExpirationValue}
+                          onChange={(e) => setEditingExpirationValue(e.target.value)}
+                          className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+                        />
+                        <button
+                          type="button"
+                          disabled={!editingExpirationValue}
+                          onClick={() => handleSetExpiration(acc.username, editingExpirationValue)}
+                          className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] disabled:opacity-50"
+                        >
+                          Speichern
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetExpiration(acc.username, null)}
+                          className="px-2 py-1 rounded bg-slate-700 text-slate-200 text-[11px]"
+                        >
+                          Unbegrenzt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingExpirationUser(null)}
+                          className="px-2 py-1 rounded bg-slate-800 text-slate-400 text-[11px]"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
