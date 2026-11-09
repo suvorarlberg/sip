@@ -69,6 +69,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
   // Modal für neuen Zugang
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkGuestExpirationModal, setShowBulkGuestExpirationModal] = useState(false);
+  const [bulkGuestExpirationValue, setBulkGuestExpirationValue] = useState('');
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState(generateRandomMemberPassword());
@@ -391,6 +393,29 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       .slice(0, 16);
   }
 
+  async function handleSetAllGuestExpiration(value: string | null) {
+    const guestAccounts = settings.memberAccounts.filter(
+      (acc) => acc.isExternal || acc.role === 'gast'
+    );
+
+    const expiresAt = value ? new Date(value).toISOString() : null;
+    const updatedAccounts = settings.memberAccounts.map((acc) =>
+      acc.isExternal || acc.role === 'gast' ? { ...acc, expiresAt } : acc
+    );
+
+    try {
+      await onUpdateSettings({ ...settings, memberAccounts: updatedAccounts });
+      setShowBulkGuestExpirationModal(false);
+      setBulkGuestExpirationValue('');
+      showBanner(
+        `Ablaufzeit für ${guestAccounts.length} Gäste aktualisiert${value ? '.' : ' – Zugang unbegrenzt.'}`
+      );
+    } catch (err) {
+      console.error('Fehler beim Aktualisieren der Gäste-Ablaufzeiten:', err);
+      showBanner('Fehler beim Speichern der Gäste-Ablaufzeiten.');
+    }
+  }
+
   async function handleSetExpiration(username: string, value: string | null) {
     const updated = settings.memberAccounts.map((acc) =>
       acc.username === username
@@ -582,6 +607,16 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowBulkGuestExpirationModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm"
+          >
+            <Clock className="w-4 h-4" />
+            <span>Ablaufzeit aller Gäste</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
@@ -590,6 +625,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             <UserPlus className="w-4 h-4" />
             <span>Neuen Zugang anlegen</span>
           </button>
+        </div>
         </div>
       </div>
 
@@ -1495,6 +1531,48 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       )}
 
       {/* Modal: Neuen Zugang / Gast anlegen */}
+       {showBulkGuestExpirationModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-md w-full text-white space-y-4">
+            <h2 className="text-lg font-bold">Ablaufzeit aller Gäste ändern</h2>
+            <p className="text-sm text-slate-400">
+              Das betrifft {settings.memberAccounts.filter((a) => a.isExternal || a.role === 'gast').length} externe Gästekonten.
+            </p>
+
+            <input
+              type="datetime-local"
+              value={bulkGuestExpirationValue}
+              onChange={(e) => setBulkGuestExpirationValue(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+            />
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!bulkGuestExpirationValue}
+                onClick={() => handleSetAllGuestExpiration(bulkGuestExpirationValue)}
+                className="px-4 py-2 rounded-xl bg-sky-500 text-slate-950 font-bold text-sm disabled:opacity-50"
+              >
+                Für alle Gäste festlegen
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetAllGuestExpiration(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 text-sm"
+              >
+                Unbegrenzt
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBulkGuestExpirationModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 text-sm"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-md w-full text-white space-y-4 animate-in fade-in zoom-in-95">

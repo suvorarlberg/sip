@@ -302,23 +302,45 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 }) => {
   const [session, setSession] = useState<SipSession>(() => sipRealtime.getSession());
   const [currentSubTab, setCurrentSubTab] = useState<SipSubTab>('antraege');
+    const [viewMode, setViewMode] = useState<'strategy' | 'member' | 'guest'>('strategy');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isStrategieLeader, setIsStrategieLeader] = useState<boolean>(
     () => isAdminUnlocked || currentMember?.role === 'strategie' || currentMember?.role === 'admin'
   );
   // Nur der echte Administrator (nicht Strategieführung, nicht Mitglieder, nicht Gäste)
   const isStrictAdmin = currentMember?.role === 'admin';
+  const isStrategyView = isStrategieLeader && viewMode === 'strategy';
+  const isMemberPreview = isStrategieLeader && viewMode === 'member';
+  const isGuestPreview = isStrategieLeader && viewMode === 'guest';
+
+  const canViewPastAntraege = isGuestPreview
+    ? false
+    : isMemberPreview
+      ? true
+      : isStrategieLeader ||
+        isStrictAdmin ||
+        (currentMember?.role === 'mitglied' && currentMember.isExternal !== true);
+
+  const canViewMemes = isGuestPreview
+    ? false
+    : isMemberPreview
+      ? true
+      : currentMember?.isExternal !== true &&
+        (isStrategieLeader ||
+          isStrictAdmin ||
+          currentMember?.role === 'mitglied' ||
+          currentMember?.isInternal === true);
 
   const isStrategieLeaderRef = useRef(isStrategieLeader);
   useEffect(() => {
     isStrategieLeaderRef.current = isStrategieLeader;
   }, [isStrategieLeader]);
 
-  useEffect(() => {
-    if (!isStrictAdmin && currentSubTab === 'drive') {
+useEffect(() => {
+    if (!canViewPastAntraege && currentSubTab === 'past_antraege') {
       setCurrentSubTab('antraege');
     }
-  }, [isStrictAdmin, currentSubTab]);
+  }, [canViewPastAntraege, currentSubTab]);
 
   // Modals & Popups
   const [activeBlurAntrag, setActiveBlurAntrag] = useState<SipAntrag | null>(null);
@@ -1048,7 +1070,7 @@ const visibleSubAntraege = useMemo(
           </div>
 
           {/* Protokoll Export Button */}
-          {isStrategieLeader && (
+          {isStrategyView && (
           <button
             type="button"
             onClick={() => downloadSipProtocol(session)}
@@ -1062,44 +1084,65 @@ const visibleSubAntraege = useMemo(
           )}
           
           {/* Strategieführung Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              if (!isStrategieLeader && !isAdminUnlocked && currentMember?.role !== 'strategie' && currentMember?.role !== 'admin') {
-                const pass = prompt('Bitte Passwort für die Strategieführung eingeben:');
-                const validPass = settings.strategiePassword || 'strategie2026';
-                if (pass !== null && pass === validPass) {
-                  setIsStrategieLeader(true);
-                } else if (pass !== null) {
-                  alert('ungültiges Passwort, bitte versuche es erneut!');
+         {/* Strategieführung aktivieren oder Ansichtsmodus wählen */}
+          {isStrategieLeader ? (
+            <div className="flex items-center gap-1 rounded-2xl border border-slate-700 bg-slate-950 p-1">
+              {([
+                ['strategy', 'Strategieführung'],
+                ['member', 'Member View'],
+                ['guest', 'Guest View'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    setViewMode(mode);
+                    setCurrentSubTab('antraege');
+                  }}
+                  aria-pressed={viewMode === mode}
+                  className={`rounded-xl px-2.5 py-1.5 text-xs font-bold transition ${
+                    viewMode === mode
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !isAdminUnlocked &&
+                  currentMember?.role !== 'strategie' &&
+                  currentMember?.role !== 'admin'
+                ) {
+                  const pass = prompt('Bitte Passwort für die Strategieführung eingeben:');
+                  const validPass = settings.strategiePassword || 'strategie2026';
+
+                  if (pass === null) return;
+                  if (pass !== validPass) {
+                    alert('Ungültiges Passwort, bitte versuche es erneut!');
+                    return;
+                  }
                 }
-              } else {
-                setIsStrategieLeader(!isStrategieLeader);
-              }
-            }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold transition cursor-pointer border ${
-              isStrategieLeader
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-md shadow-amber-500/10'
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-400'
-            }`}
-          >
-            {isStrategieLeader ? (
-              <>
-                <ShieldCheck className="w-4 h-4 text-amber-400" />
-                <span>Strategieführung</span>
-              </>
-            ) : (
-              <>
-                <ShieldAlert className="w-4 h-4" />
-                <span>Strategieführung aktivieren</span>
-              </>
-            )}
-          </button>
+
+                setIsStrategieLeader(true);
+                setViewMode('strategy');
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold transition cursor-pointer border bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-400"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              <span>Strategieführung aktivieren</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Suchleiste direkt unter dem Header (Strategieführungsansicht) */}
-      {isStrategieLeader && (
+      {isStrategyView && (
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -1125,7 +1168,7 @@ const visibleSubAntraege = useMemo(
       {/* Prominent Vote Recommendation Banner (Always visible in Plenum) */}
       <VoteRecommendationBanner
         recommendation={effectiveRecommendation}
-        isStrategieLeader={isStrategieLeader}
+        isStrategieLeader={isStrategyView}
         onUpdateRecommendation={handleVoteRecommendationUpdate}
       />
 
@@ -1167,6 +1210,7 @@ const visibleSubAntraege = useMemo(
       {/* Main Content Area with Collapsible Left Sidebar */}
       <div className="flex flex-col md:flex-row items-start gap-5">
         {/* Collapsible Left Sidebar (Sticky am linken Rand fixiert) */}
+         {!isGuestPreview && (
         <aside
           className={`transition-all duration-300 shrink-0 bg-slate-900/90 border border-slate-800 rounded-3xl p-3 sm:p-3.5 shadow-xl backdrop-blur md:sticky md:top-4 md:self-start md:max-h-[calc(100vh-2rem)] md:overflow-y-auto z-20 ${
             isSidebarCollapsed ? 'w-full md:w-16' : 'w-full md:w-64'
@@ -1239,6 +1283,7 @@ const visibleSubAntraege = useMemo(
             </button>
 
             {/* 2. Vergangene Anträge */}
+            {canViewPastAntraege && (
             <button
               type="button"
               onClick={() => setCurrentSubTab('past_antraege')}
@@ -1255,7 +1300,7 @@ const visibleSubAntraege = useMemo(
                   <span className="truncate block" title="Vergangene Anträge">
                     Vergangene Anträge
                   </span>
-                )}
+            )}
               </div>
               {!isSidebarCollapsed && (
                 <span
@@ -1269,9 +1314,9 @@ const visibleSubAntraege = useMemo(
                 </span>
               )}
             </button>
-
+            )}
             {/* 3. Google Drive Unterlagen (Nur für den Admin sichtbar) */}
-            {isStrictAdmin && (
+            {isStrictAdmin && isStrategyView && (
               <button
                 type="button"
                 onClick={() => setCurrentSubTab('drive')}
@@ -1280,7 +1325,7 @@ const visibleSubAntraege = useMemo(
                     ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
                     : 'text-slate-300 hover:bg-slate-800'
                 } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-start'}`}
-                title="Google Drive Unterlagen (Nur Admin)"
+                title="Google Drive Unterlagen"
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <FolderOpen className="w-4 h-4 shrink-0 text-amber-400" />
@@ -1294,39 +1339,39 @@ const visibleSubAntraege = useMemo(
             )}
 
             {/* 5. Meme-Feed 🎭 */}
-            <button
-              type="button"
-              onClick={() => setCurrentSubTab('memes')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer w-full min-w-0 ${
-                currentSubTab === 'memes'
-                  ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-md shadow-pink-500/20'
-                  : 'text-slate-300 hover:bg-slate-800'
-              } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-between'}`}
-              title="Meme-Feed 🎭"
-            >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <Smile className="w-4 h-4 shrink-0 text-pink-400" />
+             {canViewMemes && (
+              <button
+                type="button"
+                onClick={() => setCurrentSubTab('memes')}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer w-full min-w-0 ${
+                  currentSubTab === 'memes'
+                    ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-md shadow-pink-500/20'
+                    : 'text-slate-300 hover:bg-slate-800'
+                } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-between'}`}
+                title="Meme-Feed 🎭"
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Smile className="w-4 h-4 shrink-0 text-pink-400" />
+                  {!isSidebarCollapsed && (
+                    <span className="truncate block" title="Meme-Feed 🎭">
+                      Meme-Feed 🎭
+                    </span>
+                  )}
+                </div>
                 {!isSidebarCollapsed && (
-                  <span className="truncate block" title="Meme-Feed 🎭">
-                    Meme-Feed 🎭
-                  </span>
-                )}
-              </div>
-              {!isSidebarCollapsed && (
-                <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
                     currentSubTab === 'memes'
                       ? 'bg-white text-pink-900'
                       : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {session.memes.length}
-                </span>
-              )}
-            </button>
+                  }`}>
+                    {session.memes.length}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* 6. Archiv & Protokolle (nur Strategieführung / Admin) */}
-            {isStrategieLeader && (
+            {isStrategyView && (
               <button
                 type="button"
                 onClick={() => setCurrentSubTab('archive')}
@@ -1349,6 +1394,7 @@ const visibleSubAntraege = useMemo(
             )}
           </nav>
         </aside>
+        )}
 
         {/* Right Main Content Pane */}
         <main className="flex-1 min-w-0 w-full space-y-5">
@@ -1359,7 +1405,7 @@ const visibleSubAntraege = useMemo(
           {/* ========================================================================= */}
           {/* A: STRATEGIEFÜHRUNGS-VIEW (Alle Anträge untereinander sichtbar & aufrufbar) */}
           {/* ========================================================================= */}
-          {isStrategieLeader ? (
+          {isStrategyView ? (
             <div className="space-y-5">
               {/* Active Plenum Banner & Sub-Motions for Leadership */}
               {activeAntrag && (
@@ -1494,6 +1540,7 @@ const visibleSubAntraege = useMemo(
                     </div>
 
                     {/* Option, eigene Nebenanträge zu erstellen: Vor allen vorgefertigten Nebenanträgen */}
+                    {!isGuestPreview && (
                     <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-slate-950 to-indigo-950/40 border border-sky-500/30">
                       <div className="flex items-center gap-2 mb-1.5">
                         <Sparkles className="w-4 h-4 text-sky-400" />
@@ -1503,6 +1550,7 @@ const visibleSubAntraege = useMemo(
                           Eigenen Nebenantrag oder Wortmeldung erstellen
                         </h4>
                       </div>
+                    
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                         <button
@@ -1554,50 +1602,51 @@ const visibleSubAntraege = useMemo(
                         </button>
                       </div>
                     </div>
+                    )}
                     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-  <span className="mr-1 text-xs font-semibold text-slate-400">
-    Nebenanträge filtern:
-  </span>
+                    <span className="mr-1 text-xs font-semibold text-slate-400">
+                      Nebenanträge filtern:
+                    </span>
 
-  {(['ALL', 'AAA', 'EA', 'SA', 'WM'] as const).map((type) => {
-    const active = subAntragTypeFilter === type;
+                    {(['ALL', 'AAA', 'EA', 'SA', 'WM'] as const).map((type) => {
+                      const active = subAntragTypeFilter === type;
 
-    const colors =
-      type === 'AAA'
-        ? active
-          ? 'bg-sky-500 border-sky-400 text-slate-950'
-          : 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
-        : type === 'EA'
-        ? active
-          ? 'bg-emerald-500 border-emerald-400 text-slate-950'
-          : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-        : type === 'SA'
-        ? active
-          ? 'bg-rose-500 border-rose-400 text-white'
-          : 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
-        : type === 'WM'
-        ? active
-          ? 'bg-amber-400 border-amber-300 text-slate-950'
-          : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-        : active
-        ? 'bg-slate-300 border-slate-200 text-slate-950'
-        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
+                      const colors =
+                        type === 'AAA'
+                          ? active
+                            ? 'bg-sky-500 border-sky-400 text-slate-950'
+                            : 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
+                          : type === 'EA'
+                          ? active
+                            ? 'bg-emerald-500 border-emerald-400 text-slate-950'
+                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                          : type === 'SA'
+                          ? active
+                            ? 'bg-rose-500 border-rose-400 text-white'
+                            : 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
+                          : type === 'WM'
+                          ? active
+                            ? 'bg-amber-400 border-amber-300 text-slate-950'
+                            : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                          : active
+                          ? 'bg-slate-300 border-slate-200 text-slate-950'
+                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
 
-    return (
-      <button
-        key={type}
-        type="button"
-        onClick={() => setSubAntragTypeFilter(type)}
-        aria-pressed={active}
-        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
-      >
-        {type === 'ALL'
-          ? 'Alle Typen'
-          : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
-      </button>
-    );
-  })}
-</div>
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setSubAntragTypeFilter(type)}
+                          aria-pressed={active}
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
+                        >
+                          {type === 'ALL'
+                            ? 'Alle Typen'
+                            : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
+                        </button>
+                      );
+                    })}
+                  </div>
                     {/* Liste der Nebenanträge (von Mitgliedern eingereichte IMMER ganz oben) */}
                     {visibleSubAntraege.length === 0 ? (
                       <div className="p-5 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-slate-400 text-xs">
@@ -2054,7 +2103,6 @@ const visibleSubAntraege = useMemo(
                         </button>
                       </div>
                     </div>
-
                     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
                     <span className="mr-1 text-xs font-semibold text-slate-400">
                       Nebenanträge filtern:
@@ -2144,7 +2192,7 @@ const visibleSubAntraege = useMemo(
                   <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
                     Sobald die Strategieführung den nächsten Antrag im Plenum aufruft, ploppt dieser automatisch mit Vollbild-Overlay auf deinem Bildschirm auf.
                   </p>
-
+                  {!isGuestPreview && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2156,7 +2204,7 @@ const visibleSubAntraege = useMemo(
                     <Plus className="w-4 h-4" />
                     <span>Antrag / Wortmeldung vorab vorbereiten</span>
                   </button>
-
+                  )}
                   {/* Eingereichte Anträge aus dem Plenum im Warteraum anzeigen (während der Pause keine Nebenanträge zu vergangenen Hauptanträgen) */}
                   {warteraumAntraege.length > 0 && (
                     <div className="w-full max-w-2xl mt-8 text-left bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5">
@@ -2198,7 +2246,7 @@ const visibleSubAntraege = useMemo(
       )}
 
       {/* Subtab: Vergangene Anträge */}
-      {currentSubTab === 'past_antraege' && (
+      {currentSubTab === 'past_antraege' && canViewPastAntraege && (
         <div className="space-y-4 animate-in fade-in">
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -2268,7 +2316,7 @@ const visibleSubAntraege = useMemo(
       )}
 
       {/* Subtab 4: Meme-Feed */}
-      {currentSubTab === 'memes' && (
+      {currentSubTab === 'memes' && canViewMemes && (
         <MemeFeedTab
           memes={session.memes}
           currentUserName={currentUserName}
@@ -2280,7 +2328,7 @@ const visibleSubAntraege = useMemo(
       )}
 
       {/* Subtab 5: Archiv & Protokolle (nur Strategieführung & Admin) */}
-      {currentSubTab === 'archive' && isStrategieLeader && (
+      {currentSubTab === 'archive' && isStrategyView && (
         <SipArchiveView
           currentSession={session}
           settings={settings}
