@@ -6,6 +6,7 @@ interface NewAntragModalProps {
   currentUserName: string;
   isStrategieLeader: boolean;
   parentAntrag?: SipAntrag | null;
+  assigneeOptions: string[];
   defaultType?: AntragType;
   onClose: () => void;
   onSubmit: (antrag: Omit<SipAntrag, 'id' | 'isPreFab' | 'status' | 'createdAt'>) => void;
@@ -15,6 +16,7 @@ export const NewAntragModal: React.FC<NewAntragModalProps> = ({
   currentUserName,
   isStrategieLeader,
   parentAntrag,
+  assigneeOptions,
   defaultType = 'AAA',
   onClose,
   onSubmit,
@@ -25,9 +27,10 @@ export const NewAntragModal: React.FC<NewAntragModalProps> = ({
   );
   const [lineOrParagraph, setLineOrParagraph] = useState(parentAntrag?.lineOrParagraph || '');
   const [content, setContent] = useState('');
+    const [claimedBy, setClaimedBy] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+    function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !content.trim()) {
       setErrorMsg('Bitte gib einen Titel und den genauen Antragstext ein.');
@@ -42,6 +45,7 @@ export const NewAntragModal: React.FC<NewAntragModalProps> = ({
       author: currentUserName,
       isActive: false,
       parentAntragId: parentAntrag?.id,
+      ...(isStrategieLeader ? { claimedBy: claimedBy.trim() || null } : {}),
     });
     onClose();
   }
@@ -137,6 +141,26 @@ export const NewAntragModal: React.FC<NewAntragModalProps> = ({
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
             />
           </div>
+
+          {isStrategieLeader && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Optional zuweisen an
+              </label>
+              <select
+                value={claimedBy}
+                onChange={(e) => setClaimedBy(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+              >
+                <option value="">Ungeclaimt lassen</option>
+                {assigneeOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Titel */}
           <div>

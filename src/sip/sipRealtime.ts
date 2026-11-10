@@ -71,8 +71,7 @@ export type SipRealtimeMessage =
   | { type: 'ANTRAG_UNCLAIMED'; antragId: string; antragTitle: string; unclaimedBy: string; updatedAt?: string }
   | { type: 'ANTRAG_SUBMITTED'; antrag: SipAntrag; updatedAt?: string }
   | { type: 'ANTRAG_APPROVED'; antrag: SipAntrag; updatedAt?: string }
-  | { type: 'ANTRAG_DECIDED'; antragId: string; decision: 'ANGENOMMEN' | 'ABGELEHNT'; decidedAt: string }
-  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string }
+  | { type: 'ANTRAG_DECIDED'; antragId: string; decision: 'ANGENOMMEN' | 'ABGELEHNT'; decidedAt: string | null }  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string }
   | { type: 'DIRECT_MESSAGE_PUBLISHED'; message: SipDirectMessage; directMessages: SipDirectMessage[]; updatedAt?: string }
   | { type: 'DIRECT_MESSAGE_UPDATED'; directMessages: SipDirectMessage[]; activeDirectMessage: SipDirectMessage | null; updatedAt?: string };
 
@@ -1146,17 +1145,19 @@ class SipRealtimeService {
       }
 
       case 'ANTRAG_DECIDED': {
+        const updatedAt = this.nextTimestamp();
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
             a.id === msg.antragId
-              ? { ...a, plenumResult: msg.decision, plenumResultAt: msg.decidedAt }
+              ? {
+                  ...a,
+                  plenumResult: msg.decision,
+                  plenumResultAt: msg.decidedAt,
+                }
               : a
           ),
-          updatedAt:
-            msg.decidedAt && msg.decidedAt > this.currentSession.updatedAt
-              ? msg.decidedAt
-              : this.nextTimestamp(),
+          updatedAt,
         };
         this.notify();
         break;
@@ -1563,7 +1564,7 @@ class SipRealtimeService {
     settings?: AppSettings
   ) {
     this.lastLocalMutationAt = Date.now();
-    const decidedAt = this.nextTimestamp();
+    const updatedAt = this.nextTimestamp();
     const antrag = this.currentSession.antraege.find((a) => a.id === antragId);
 
     this.logActivity({
@@ -1578,32 +1579,56 @@ class SipRealtimeService {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) =>
         a.id === antragId
-          ? { ...a, plenumResult: decision, plenumResultAt: decidedAt }
+          ? { ...a, plenumResult: decision, plenumResultAt: null }
           : a
       ),
-      updatedAt: decidedAt,
+      updatedAt,
     };
     this.saveToStorage();
     this.notify();
-
-    this.triggerNotification({
-      id: `decision_${antragId}_${decision}`,
-      title: decision === 'ANGENOMMEN' ? '🎉 Antrag angenommen!' : '❌ Antrag abgelehnt',
-      message: `Antrag "${antrag?.title || antragId}" wurde vom Plenum ${decision === 'ANGENOMMEN' ? 'angenommen' : 'abgelehnt'}.`,
-      type: decision === 'ANGENOMMEN' ? 'vote' : 'system',
-      timestamp: decidedAt,
-      antragId,
-    });
 
     const msg: SipRealtimeMessage = {
       type: 'ANTRAG_DECIDED',
       antragId,
       decision,
-      decidedAt,
+      decidedAt: null,
     };
     this.broadcastMessage(msg, settings);
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession
+    );
+  }
+
+  public async startAntragCloseTimer(
+    antragId: string,
+    settings?: AppSettings
+  ): Promise<void> {
+    this.lastLocalMutationAt = Date.now();
+    const target = this.currentSession.antraege.find((a) => a.id === antragId);
+    if (!target?.plenumResult) return;
+
+    const startedAt = this.nextTimestamp();
+    this.currentSession = {
+      ...this.currentSession,
+      antraege: this.currentSession.antraege.map((a) =>
+        a.id === antragId ? { ...a, plenumResultAt: startedAt } : a
+      ),
+      updatedAt: startedAt,
+    };
+    this.saveToStorage();
+    this.notify();
+
+    const msg: SipRealtimeMessage = {
+      type: 'STATE_SYNC',
+      session: this.currentSession,
+    };
+    this.broadcastMessage(msg, settings);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession
+    );
   }
 
   public async setVoteRecommendation(
@@ -1738,8 +1763,16 @@ class SipRealtimeService {
       isPreFab: false,
       status: 'pending_approval',
       createdAt: ts,
-      claimedBy: antragData.author,
-      claimedAt: ts,
+            claimedBy:
+        antragData.claimedBy !== undefined
+          ? antragData.claimedBy
+          : antragData.author,
+      claimedAt:
+        antragData.claimedBy !== undefined
+          ? antragData.claimedBy
+            ? ts
+            : null
+          : ts,
     };
 
     this.logActivity({

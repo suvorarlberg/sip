@@ -48,6 +48,7 @@ import {
   verifyAndConsumeBackupCode,
   downloadBackupCodesTxt,
 } from '../utils/totp';
+import { comparePeopleByLastName } from '../sip/utils/sortPeople';
 
 
 interface SipAdminViewProps {
@@ -255,7 +256,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
         );
       }
       return true;
-    });
+    }).sort((a, b) => comparePeopleByLastName(a.name, b.name));
   }, [settings.memberAccounts, roleFilter, searchQuery]);
 
   function calculateExpiresAt(preset: string, customDate: string): string | null {

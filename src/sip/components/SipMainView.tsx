@@ -59,15 +59,20 @@ import { SipArchiveView } from './SipArchiveView';
 import { downloadSipProtocol } from '../utils/protocolExporter';
 import { cleanSubMotionTitle } from '../utils/sipAutoImporter';
 import suLogo from '../../assets/su-logo.png';
+import { comparePeopleByLastName } from '../utils/sortPeople';
 
 interface PastAntragCardProps {
   hauptAntrag: SipAntrag;
   subAntraege: SipAntrag[];
+  canEditResults: boolean;
+  onSetResult: (antragId: string, result: 'ANGENOMMEN' | 'ABGELEHNT') => void;
 }
 
 export const PastAntragCard: React.FC<PastAntragCardProps> = ({
   hauptAntrag,
   subAntraege,
+  canEditResults,
+  onSetResult,
 }) => {
   const [showForderungen, setShowForderungen] = useState(false);
   const [showText, setShowText] = useState(false);
@@ -106,6 +111,27 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
               )}
             </span>
 
+            {canEditResults && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-pressed={hauptAntrag.plenumResult === 'ANGENOMMEN'}
+                  onClick={() => onSetResult(hauptAntrag.id, 'ANGENOMMEN')}
+                  className="rounded-lg border border-emerald-500/40 px-2 py-1 text-[10px] font-bold text-emerald-300 hover:bg-emerald-500/20"
+                >
+                  Angenommen
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={hauptAntrag.plenumResult === 'ABGELEHNT'}
+                  onClick={() => onSetResult(hauptAntrag.id, 'ABGELEHNT')}
+                  className="rounded-lg border border-rose-500/40 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-500/20"
+                >
+                  Abgelehnt
+                </button>
+              </div>
+            )}
+
             <span className="text-xs font-mono px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
               {ANTRAG_TYPE_CONFIG[hauptAntrag.type]?.shortLabel}
             </span>
@@ -118,10 +144,17 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span>Antragsteller:in: <strong className="text-white">{hauptAntrag.author}</strong></span>
+            <span>
+              Antragsteller:in: <strong className="text-white">{hauptAntrag.author}</strong>
+            </span>
             {hauptAntrag.plenumResultAt && (
               <span className="text-[11px] text-slate-500">
-                • {new Date(hauptAntrag.plenumResultAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} Uhr
+                •{' '}
+                {new Date(hauptAntrag.plenumResultAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}{' '}
+                Uhr
               </span>
             )}
           </div>
@@ -145,11 +178,20 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
             >
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-sky-400" />
-                <span>Daher fordert das Vorarlberger Schüler:innenparlament ({hauptAntrag.forderungspunkte.length})</span>
+                <span>
+                  Daher fordert das Vorarlberger Schüler:innenparlament (
+                  {hauptAntrag.forderungspunkte.length})
+                </span>
               </div>
               <div className="flex items-center gap-1 text-slate-400">
-                <span className="text-[11px] font-normal">{showForderungen ? 'Einklappen' : 'Aufklappen'}</span>
-                {showForderungen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <span className="text-[11px] font-normal">
+                  {showForderungen ? 'Einklappen' : 'Aufklappen'}
+                </span>
+                {showForderungen ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
               </div>
             </button>
 
@@ -180,10 +222,14 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
             >
               <div className="flex items-center gap-2">
                 <Mic className="w-4 h-4 text-indigo-400" />
-                <span>{hauptAntrag.rede ? `Vorbereitete Rede (${hauptAntrag.author})` : 'Antragstext'}</span>
+                <span>
+                  {hauptAntrag.rede ? `Vorbereitete Rede (${hauptAntrag.author})` : 'Antragstext'}
+                </span>
               </div>
               <div className="flex items-center gap-1 text-slate-400">
-                <span className="text-[11px] font-normal">{showText ? 'Einklappen' : 'Aufklappen'}</span>
+                <span className="text-[11px] font-normal">
+                  {showText ? 'Einklappen' : 'Aufklappen'}
+                </span>
                 {showText ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </div>
             </button>
@@ -203,7 +249,11 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
                     }}
                     className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
                   >
-                    {hasCopiedRede ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {hasCopiedRede ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
                     <span>{hasCopiedRede ? 'Kopiert!' : 'Rede kopieren'}</span>
                   </button>
                 )}
@@ -224,8 +274,14 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
               <span>Dazugehörige Nebenanträge ({subAntraege.length})</span>
             </div>
             <div className="flex items-center gap-1 text-slate-400">
-              <span className="text-[11px] font-normal">{showSubAntraege ? 'Einklappen' : 'Aufklappen'}</span>
-              {showSubAntraege ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              <span className="text-[11px] font-normal">
+                {showSubAntraege ? 'Einklappen' : 'Aufklappen'}
+              </span>
+              {showSubAntraege ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
             </div>
           </button>
 
@@ -260,20 +316,49 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
                             {cleanSubMotionTitle(sub.title)}
                           </span>
                         </div>
-                        <p className="text-slate-400 text-xs line-clamp-2">
-                          {sub.content}
-                        </p>
+                        <p className="text-slate-400 text-xs line-clamp-2">{sub.content}</p>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                      <div className="flex items-center gap-2 shrink-0 self-start sm:self-center flex-wrap">
                         {sub.claimedBy ? (
                           <span className="px-2.5 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold">
                             🎙️ {sub.claimedBy}
                           </span>
                         ) : (
-                          <span className="text-slate-500 text-[11px] italic">
-                            Nicht geclaimed
+                          <span className="text-slate-500 text-[11px] italic">Nicht geclaimed</span>
+                        )}
+
+                        {sub.plenumResult && (
+                          <span
+                            className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
+                              sub.plenumResult === 'ANGENOMMEN'
+                                ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300'
+                                : 'border-rose-500/40 bg-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            {sub.plenumResult}
                           </span>
+                        )}
+
+                        {canEditResults && sub.type !== 'WM' && (
+                          <>
+                            <button
+                              type="button"
+                              aria-pressed={sub.plenumResult === 'ANGENOMMEN'}
+                              onClick={() => onSetResult(sub.id, 'ANGENOMMEN')}
+                              className="rounded-lg border border-emerald-500/40 px-2 py-1 text-[10px] font-bold text-emerald-300 hover:bg-emerald-500/20"
+                            >
+                              Angenommen
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={sub.plenumResult === 'ABGELEHNT'}
+                              onClick={() => onSetResult(sub.id, 'ABGELEHNT')}
+                              className="rounded-lg border border-rose-500/40 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-500/20"
+                            >
+                              Abgelehnt
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -303,10 +388,10 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 }) => {
   const [session, setSession] = useState<SipSession>(() => sipRealtime.getSession());
   const [currentSubTab, setCurrentSubTab] = useState<SipSubTab>('antraege');
-    const [viewMode, setViewMode] = useState<'strategy' | 'member' | 'guest'>('strategy');
+  const [viewMode, setViewMode] = useState<'strategy' | 'member' | 'guest'>('strategy');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isStrategieLeader, setIsStrategieLeader] = useState<boolean>(
-    () => isAdminUnlocked || currentMember?.role === 'strategie' || currentMember?.role === 'admin'
+    () => isAdminUnlocked || currentMember?.role === 'strategie' || currentMember?.role === 'admin',
   );
   // Nur der echte Administrator (nicht Strategieführung, nicht Mitglieder, nicht Gäste)
   const isStrictAdmin = currentMember?.role === 'admin';
@@ -318,13 +403,17 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     isStrategieLeaderRef.current = isStrategieLeader;
   }, [isStrategieLeader]);
 
-
   // Modals & Popups
   const [activeBlurAntrag, setActiveBlurAntrag] = useState<SipAntrag | null>(null);
-  const [activeDirectMessagePopup, setActiveDirectMessagePopup] = useState<SipDirectMessage | null>(null);
+  const [activeDirectMessagePopup, setActiveDirectMessagePopup] = useState<SipDirectMessage | null>(
+    null,
+  );
   const [showDirectMessageModal, setShowDirectMessageModal] = useState(false);
-  const [editingDirectMessageDraft, setEditingDirectMessageDraft] = useState<SipDirectMessage | null>(null);
+  const [editingDirectMessageDraft, setEditingDirectMessageDraft] =
+    useState<SipDirectMessage | null>(null);
   const [confirmActivateAntrag, setConfirmActivateAntrag] = useState<SipAntrag | null>(null);
+  const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
+  const [closeConfirmationAntragId, setCloseConfirmationAntragId] = useState<string | null>(null);
   const [showNewAntragModal, setShowNewAntragModal] = useState(false);
   const [newAntragPreset, setNewAntragPreset] = useState<{
     defaultType?: AntragType;
@@ -336,14 +425,17 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   const [isHeroTextExpanded, setIsHeroTextExpanded] = useState(false);
 
   // Filter
-  const [subAntragTypeFilter, setSubAntragTypeFilter] = useState<AntragType | 'ALL'>('ALL');
+  const [subAntragTypeFilter, setSubAntragTypeFilter] = useState<AntragType | 'ALL' | 'UNCLAIMED'>(
+    'ALL',
+  );
   const [claimFilter, setClaimFilter] = useState<'ALL' | 'FREE' | 'MINE' | 'CLAIMED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Live Toast Notifications
   const [activeToast, setActiveToast] = useState<SipNotification | null>(null);
 
-  const currentUserName = currentMember?.name || (isAdminUnlocked ? 'Administrator' : 'Gast-Mitglied');
+  const currentUserName =
+    currentMember?.name || (isAdminUnlocked ? 'Administrator' : 'Gast-Mitglied');
   const currentUserIdentifier = currentMember?.username || currentUserName;
 
   const currentUserIdentityRef = useRef({
@@ -458,7 +550,6 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   // Anträge filtern - Alle Mitglieder sehen alle Anträge und deren aktuellen Prüfstatus
   const filteredAntraege = useMemo(() => {
     return session.antraege.filter((item) => {
-      
       if (claimFilter === 'FREE' && item.claimedBy) {
         return false;
       }
@@ -492,18 +583,25 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     return session.antraege.find((a) => a.isActive) || null;
   }, [session.activeAntragId, session.antraege]);
 
+  const closeConfirmationAntrag =
+    session.antraege.find((a) => a.id === closeConfirmationAntragId) ?? activeAntrag;
+
   // Timer & Fadeout für aktiven Antrag bei Entscheidung (ANGENOMMEN / ABGELEHNT)
   const [decisionNow, setDecisionNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
-    if (!activeAntrag?.plenumResult || !activeAntrag?.plenumResultAt) return;
+    const hasRunningDecisionTimer = session.antraege.some(
+      (a) =>
+        (a.id === activeAntrag?.id || a.parentAntragId === activeAntrag?.id) &&
+        a.plenumResult &&
+        a.plenumResultAt,
+    );
 
-    const interval = setInterval(() => {
-      setDecisionNow(Date.now());
-    }, 100);
+    if (!hasRunningDecisionTimer) return;
 
+    const interval = setInterval(() => setDecisionNow(Date.now()), 100);
     return () => clearInterval(interval);
-  }, [activeAntrag?.plenumResult, activeAntrag?.plenumResultAt]);
+  }, [session.antraege, activeAntrag?.id]);
 
   const DECISION_FADE_DURATION_MS = 3000; // 3 Sekunden (Fadeouttimer)
   const decisionElapsedMs =
@@ -513,19 +611,29 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   const isDecisionExpired = decisionElapsedMs >= DECISION_FADE_DURATION_MS;
   const decisionRemainingSeconds = Math.max(
     0,
-    Math.ceil((DECISION_FADE_DURATION_MS - decisionElapsedMs) / 1000)
+    Math.ceil((DECISION_FADE_DURATION_MS - decisionElapsedMs) / 1000),
   );
   // Linearer Übergang von 1 auf 0 über 3 Sekunden
-  const decisionOpacity = activeAntrag?.plenumResult
-    ? Math.max(0, 1 - decisionElapsedMs / DECISION_FADE_DURATION_MS)
-    : 1;
+  const decisionOpacity = 1;
 
-  // Wenn 3 Sekunden abgelaufen sind, beendet die Strategieführung automatisch den Aufruf
+  // Nach bestätigtem Timerstart den Hauptantrag nach 3 Sekunden schließen.
   useEffect(() => {
-    if (isStrategieLeader && activeAntrag?.plenumResult && isDecisionExpired) {
-      handleClearActiveAntrag();
+    if (
+      isStrategieLeader &&
+      activeAntrag?.plenumResult &&
+      activeAntrag.plenumResultAt &&
+      isDecisionExpired
+    ) {
+      void sipRealtime.clearActiveAntrag(settings);
     }
-  }, [isStrategieLeader, activeAntrag?.plenumResult, isDecisionExpired]);
+  }, [
+    isStrategieLeader,
+    activeAntrag?.id,
+    activeAntrag?.plenumResult,
+    activeAntrag?.plenumResultAt,
+    isDecisionExpired,
+    settings,
+  ]);
 
   // Sobald ein Antrag ausgefadet ist (oder kein aktiver Antrag vorhanden ist),
   // wird auch die Abstimmungsempfehlung sofort auf 'KEINE' zurückgesetzt.
@@ -544,7 +652,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 
   const effectiveRoleTabAccess = settings.roleTabAccess ?? defaultRoleTabAccess;
 
-    const activeRole: SipRoleKey = isGuestPreview
+  const activeRole: SipRoleKey = isGuestPreview
     ? 'gast'
     : isMemberPreview
       ? 'mitglied'
@@ -635,42 +743,75 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   }, [session.antraege]);
 
   // Spezifisch zu diesem aktiven Hauptantrag eingereichte Nebenanträge (ÄA, EA, SA, WM)
-const activeSubAntraege = useMemo(() => {
-  if (!activeAntrag) return [];
+  const activeSubAntraege = useMemo(() => {
+    if (!activeAntrag) return [];
 
-  const subs = session.antraege.filter(
-    (a) => a.parentAntragId === activeAntrag.id && a.type !== 'HAUPTANTRAG'
+    const subs = session.antraege.filter((a) => {
+      if (a.parentAntragId !== activeAntrag.id || a.type === 'HAUPTANTRAG') {
+        return false;
+      }
+
+      if (a.plenumResult && a.plenumResultAt) {
+        const elapsed = decisionNow - new Date(a.plenumResultAt).getTime();
+        if (elapsed >= DECISION_FADE_DURATION_MS) return false;
+      }
+
+      return true;
+    });
+
+    return [...subs].sort((a, b) => {
+      const aIsCustom = !a.isPreFab && a.id.startsWith('antrag_custom_');
+      const bIsCustom = !b.isPreFab && b.id.startsWith('antrag_custom_');
+
+      if (isStrategieLeader) {
+        if (aIsCustom !== bIsCustom) return aIsCustom ? -1 : 1;
+      } else {
+        const aIsMine = aIsCustom && a.author === currentUserName;
+        const bIsMine = bIsCustom && b.author === currentUserName;
+        if (aIsMine !== bIsMine) return aIsMine ? -1 : 1;
+        if (aIsCustom !== bIsCustom) return aIsCustom ? -1 : 1;
+      }
+
+      if (aIsCustom && bIsCustom) {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+      return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+    });
+  }, [activeAntrag, session.antraege, isStrategieLeader, currentUserName, decisionNow]);
+
+  const unfinishedSubAntraege = activeSubAntraege.filter(
+    (antrag) => antrag.type !== 'WM' && antrag.status === 'approved' && !antrag.plenumResult,
   );
 
-  return [...subs].sort((a, b) => {
-    const aIsCustom = !a.isPreFab && a.id.startsWith('antrag_custom_');
-    const bIsCustom = !b.isPreFab && b.id.startsWith('antrag_custom_');
-
-    if (isStrategieLeader) {
-      if (aIsCustom !== bIsCustom) return aIsCustom ? -1 : 1;
-    } else {
-      const aIsMine = aIsCustom && a.author === currentUserName;
-      const bIsMine = bIsCustom && b.author === currentUserName;
-      if (aIsMine !== bIsMine) return aIsMine ? -1 : 1;
-      if (aIsCustom !== bIsCustom) return aIsCustom ? -1 : 1;
+  const visibleSubAntraege = useMemo(() => {
+    if (subAntragTypeFilter === 'ALL') {
+      return activeSubAntraege;
     }
 
-    if (aIsCustom && bIsCustom) {
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    if (subAntragTypeFilter === 'UNCLAIMED') {
+      const categoryOrder: AntragType[] = [
+        'AAA',
+        'EA',
+        'SA',
+        'ENDE_DEBATTE',
+        'ENDE_REDNER',
+        'WM',
+        'SONSTIGES',
+      ];
+
+      return activeSubAntraege
+        .filter((antrag) => !antrag.claimedBy?.trim())
+        .sort((a, b) => {
+          const categoryDifference = categoryOrder.indexOf(a.type) - categoryOrder.indexOf(b.type);
+
+          return categoryDifference || (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+        });
     }
-    return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
-  });
-}, [activeAntrag, session.antraege, isStrategieLeader, currentUserName]);
 
-const visibleSubAntraege = useMemo(
-  () =>
-    subAntragTypeFilter === 'ALL'
-      ? activeSubAntraege
-      : activeSubAntraege.filter((antrag) => antrag.type === subAntragTypeFilter),
-  [activeSubAntraege, subAntragTypeFilter]
-);
+    return activeSubAntraege.filter((antrag) => antrag.type === subAntragTypeFilter);
+  }, [activeSubAntraege, subAntragTypeFilter]);
 
-// Live Counters für Header: Angenommene und Abgelehnte Anträge
+  // Live Counters für Header: Angenommene und Abgelehnte Anträge
   const acceptedCount = useMemo(() => {
     return session.antraege.filter((a) => a.plenumResult === 'ANGENOMMEN').length;
   }, [session.antraege]);
@@ -685,10 +826,23 @@ const visibleSubAntraege = useMemo(
   }
 
   function handleClearActiveAntrag() {
-    sipRealtime.clearActiveAntrag(settings);
+    setCloseConfirmationAntragId(activeAntrag?.id ?? null);
+    setShowCloseConfirmation(true);
+  }
+
+  async function confirmClearActiveAntrag() {
+    const target = session.antraege.find((a) => a.id === closeConfirmationAntragId) ?? activeAntrag;
+
+    setShowCloseConfirmation(false);
+    setCloseConfirmationAntragId(null);
+
+    if (!target?.plenumResult) return;
+
+    await sipRealtime.startAntragCloseTimer(target.id, settings);
   }
 
   function handleDecideAntrag(antragId: string, decision: 'ANGENOMMEN' | 'ABGELEHNT') {
+    if (antragId === activeAntrag?.id && unfinishedSubAntraege.length > 0) return;
     sipRealtime.decideAntrag(antragId, decision, settings);
   }
 
@@ -701,7 +855,11 @@ const visibleSubAntraege = useMemo(
     sipRealtime.unclaimAntrag(antragId, currentUserName, settings);
   }
 
-  function handleVoteRecommendationUpdate(rec: { type: VoteType; note: string; isPublished: boolean }) {
+  function handleVoteRecommendationUpdate(rec: {
+    type: VoteType;
+    note: string;
+    isPublished: boolean;
+  }) {
     sipRealtime.setVoteRecommendation(
       {
         type: rec.type,
@@ -709,14 +867,18 @@ const visibleSubAntraege = useMemo(
         isPublished: rec.isPublished,
         updatedBy: currentUserName,
       },
-      settings
+      settings,
     );
   }
 
   function handleCreateAntrag(
-    antragData: Omit<SipAntrag, 'id' | 'isPreFab' | 'status' | 'createdAt'>
+    antragData: Omit<SipAntrag, 'id' | 'isPreFab' | 'status' | 'createdAt'>,
   ) {
-    const created = sipRealtime.submitCustomAntrag(antragData, settings);
+    const dataToSubmit = isStrategieLeader
+      ? { ...antragData, claimedBy: antragData.claimedBy ?? null }
+      : antragData;
+
+    const created = sipRealtime.submitCustomAntrag(dataToSubmit, settings);
     // Wenn Strategieführung, direkt freigeben
     if (isStrategieLeader) {
       sipRealtime.updateOrApproveAntrag(created.id, { status: 'approved' }, settings);
@@ -771,7 +933,7 @@ const visibleSubAntraege = useMemo(
         ...data,
         createdBy: currentUserIdentifier,
       },
-      settings
+      settings,
     );
   }
 
@@ -788,7 +950,7 @@ const visibleSubAntraege = useMemo(
         createdBy: currentUserIdentifier,
         publishedBy: currentUserIdentifier,
       },
-      settings
+      settings,
     );
   }
 
@@ -797,7 +959,7 @@ const visibleSubAntraege = useMemo(
       messageId,
       currentUserName,
       settings,
-      currentUserIdentifier
+      currentUserIdentifier,
     );
   }
 
@@ -818,8 +980,8 @@ const visibleSubAntraege = useMemo(
             activeToast.type === 'vote'
               ? 'border-amber-400 shadow-amber-500/20'
               : activeToast.type === 'claim'
-              ? 'border-emerald-400 shadow-emerald-500/20'
-              : 'border-sky-400 shadow-sky-500/20'
+                ? 'border-emerald-400 shadow-emerald-500/20'
+                : 'border-sky-400 shadow-sky-500/20'
           }`}
         >
           <div className="flex items-start gap-3">
@@ -828,8 +990,8 @@ const visibleSubAntraege = useMemo(
                 activeToast.type === 'vote'
                   ? 'bg-amber-500/20 text-amber-300'
                   : activeToast.type === 'claim'
-                  ? 'bg-emerald-500/20 text-emerald-300'
-                  : 'bg-sky-500/20 text-sky-400'
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-sky-500/20 text-sky-400'
               }`}
             >
               {activeToast.type === 'claim' ? (
@@ -846,15 +1008,13 @@ const visibleSubAntraege = useMemo(
                   activeToast.type === 'vote'
                     ? 'text-amber-300'
                     : activeToast.type === 'claim'
-                    ? 'text-emerald-300'
-                    : 'text-sky-300'
+                      ? 'text-emerald-300'
+                      : 'text-sky-300'
                 }`}
               >
                 {activeToast.title}
               </h4>
-              <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-                {activeToast.message}
-              </p>
+              <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">{activeToast.message}</p>
             </div>
             <button
               type="button"
@@ -907,9 +1067,7 @@ const visibleSubAntraege = useMemo(
                 <Play className="w-6 h-6 fill-current" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-white">
-                  Antrag im Plenum aufrufen?
-                </h3>
+                <h3 className="text-lg font-black text-white">Antrag im Plenum aufrufen?</h3>
                 <p className="text-xs text-slate-400">
                   Wird auf allen Geräten der Delegierten live geschaltet
                 </p>
@@ -947,7 +1105,8 @@ const visibleSubAntraege = useMemo(
             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-6 flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
               <span className="leading-relaxed">
-                Soll dieser Antrag nun auf allen Geräten angezeigt werden? Das Blurry-Vollbildoverlay öffnet sich sofort auf allen Bildschirmen im Plenum.
+                Soll dieser Antrag nun auf allen Geräten angezeigt werden? Das
+                Blurry-Vollbildoverlay öffnet sich sofort auf allen Bildschirmen im Plenum.
               </span>
             </div>
 
@@ -979,16 +1138,52 @@ const visibleSubAntraege = useMemo(
         </div>
       )}
 
+      {showCloseConfirmation && closeConfirmationAntrag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="w-full max-w-md rounded-3xl border-2 border-amber-500/50 bg-slate-900 p-6 text-white shadow-2xl">
+            <h3 className="mb-2 text-lg font-black">Schließ-Timer starten?</h3>
+            <p className="mb-5 text-sm text-slate-300">
+              „{closeConfirmationAntrag.title}“ wird nach dem Timer geschlossen. Möchtest du den
+              Timer starten?{' '}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCloseConfirmation(false);
+                  setCloseConfirmationAntragId(null);
+                }}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800"
+              >
+                Nein, offen lassen
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmClearActiveAntrag()}
+                className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-amber-400"
+              >
+                Ja, Timer starten
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals for Custom Motion, Edit Motion, Parser */}
       {showNewAntragModal && (
         <NewAntragModal
           currentUserName={currentUserName}
+          assigneeOptions={[
+            ...new Set(
+              (settings.memberAccounts ?? []).map((member) => member.name.trim()).filter(Boolean),
+            ),
+          ].sort(comparePeopleByLastName)}
           isStrategieLeader={isStrategieLeader}
           parentAntrag={newAntragPreset?.parentAntrag}
           defaultType={newAntragPreset?.defaultType || 'AAA'}
           onClose={() => {
             setShowNewAntragModal(false);
-            setNewAntragPreset(null);
+            setNewAntragPreset({ defaultType: 'HAUPTANTRAG' });
           }}
           onSubmit={handleCreateAntrag}
         />
@@ -1041,12 +1236,9 @@ const visibleSubAntraege = useMemo(
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-sky-400 uppercase tracking-wider">
-              </span>
+              <span className="text-xs font-bold text-sky-400 uppercase tracking-wider"></span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-white">
-              {session.title}
-            </h1>
+            <h1 className="text-xl sm:text-2xl font-black text-white">{session.title}</h1>
           </div>
         </div>
 
@@ -1060,7 +1252,9 @@ const visibleSubAntraege = useMemo(
             >
               <Check className="w-4 h-4 text-emerald-400 stroke-[3]" />
               <span>{acceptedCount}</span>
-              <span className="text-[11px] text-emerald-400/80 font-semibold hidden sm:inline">Angenommen</span>
+              <span className="text-[11px] text-emerald-400/80 font-semibold hidden sm:inline">
+                Angenommen
+              </span>
             </div>
 
             <div
@@ -1069,7 +1263,9 @@ const visibleSubAntraege = useMemo(
             >
               <X className="w-4 h-4 text-rose-400 stroke-[3]" />
               <span>{rejectedCount}</span>
-              <span className="text-[11px] text-rose-400/80 font-semibold hidden sm:inline">Abgelehnt</span>
+              <span className="text-[11px] text-rose-400/80 font-semibold hidden sm:inline">
+                Abgelehnt
+              </span>
             </div>
           </div>
 
@@ -1081,27 +1277,28 @@ const visibleSubAntraege = useMemo(
 
           {/* Protokoll Export Button */}
           {isStrategyView && (
-          <button
-            type="button"
-            onClick={() => downloadSipProtocol(session)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-950 hover:bg-slate-850 hover:border-sky-500/40 border border-slate-800 text-xs text-sky-300 font-semibold transition cursor-pointer shadow-sm"
-            title="Sitzungsprotokoll & Audit-Log als Textdatei herunterladen"
-          >
-            <Download className="w-3.5 h-3.5 text-sky-400" />
-            <span>Protokoll exportieren</span>
-          </button>
-
+            <button
+              type="button"
+              onClick={() => downloadSipProtocol(session)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-950 hover:bg-slate-850 hover:border-sky-500/40 border border-slate-800 text-xs text-sky-300 font-semibold transition cursor-pointer shadow-sm"
+              title="Sitzungsprotokoll & Audit-Log als Textdatei herunterladen"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-400" />
+              <span>Protokoll exportieren</span>
+            </button>
           )}
-          
+
           {/* Strategieführung Toggle */}
-         {/* Strategieführung aktivieren oder Ansichtsmodus wählen */}
+          {/* Strategieführung aktivieren oder Ansichtsmodus wählen */}
           {isStrategieLeader ? (
             <div className="flex items-center gap-1 rounded-2xl border border-slate-700 bg-slate-950 p-1">
-              {([
-                ['strategy', 'Strategieführung'],
-                ['member', 'Member View'],
-                ['guest', 'Guest View'],
-              ] as const).map(([mode, label]) => (
+              {(
+                [
+                  ['strategy', 'Strategieführung'],
+                  ['member', 'Member View'],
+                  ['guest', 'Guest View'],
+                ] as const
+              ).map(([mode, label]) => (
                 <button
                   key={mode}
                   type="button"
@@ -1183,38 +1380,38 @@ const visibleSubAntraege = useMemo(
       />
 
       {isStrategyView && (
-  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-    <div className="flex items-center gap-2 flex-wrap">
-      {canEditTab('antraege') && isStrategyView && (
-        <button
-          type="button"
-          onClick={() => {
-            setEditingDirectMessageDraft(null);
-            setShowDirectMessageModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
-        >
-          <Megaphone className="w-4 h-4" />
-          <span>Direktnachricht schreiben</span>
-        </button>
-      )}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            {canEditTab('antraege') && isStrategyView && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingDirectMessageDraft(null);
+                  setShowDirectMessageModal(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
+              >
+                <Megaphone className="w-4 h-4" />
+                <span>Direktnachricht schreiben</span>
+              </button>
+            )}
 
-      {canEditTab('antraege') && isStrategyView && (
-        <button
-          type="button"
-          onClick={() => {
-            setNewAntragPreset(null);
-            setShowNewAntragModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 transition cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Neuen Antrag schreiben</span>
-        </button>
+            {canEditTab('antraege') && isStrategyView && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewAntragPreset(null);
+                  setShowNewAntragModal(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Neuen Antrag schreiben</span>
+              </button>
+            )}
+          </div>
+        </div>
       )}
-    </div>
-  </div>
-)}
 
       {/* Main Content Area with Collapsible Left Sidebar */}
       <div className="flex flex-col md:flex-row items-start gap-5">
@@ -1231,7 +1428,10 @@ const visibleSubAntraege = useMemo(
             }`}
           >
             {!isSidebarCollapsed && (
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden md:inline truncate" title="Navigation">
+              <span
+                className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden md:inline truncate"
+                title="Navigation"
+              >
                 Navigation
               </span>
             )}
@@ -1288,18 +1488,18 @@ const visibleSubAntraege = useMemo(
                     <span className="truncate block" title="Vergangene Anträge">
                       Vergangene Anträge
                     </span>
-              )}
+                  )}
                 </div>
                 {!isSidebarCollapsed && (
                   <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
-                    currentSubTab === 'past_antraege'
-                      ? 'bg-slate-950 text-emerald-300'
-                      : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {pastHauptAntraege.length}
-                </span>
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
+                      currentSubTab === 'past_antraege'
+                        ? 'bg-slate-950 text-emerald-300'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {pastHauptAntraege.length}
+                  </span>
                 )}
               </button>
             )}
@@ -1328,7 +1528,7 @@ const visibleSubAntraege = useMemo(
             )}
 
             {/* 5. Meme-Feed 🎭 */}
-             {canSeeTab('memes') && (
+            {canSeeTab('memes') && (
               <button
                 type="button"
                 onClick={() => setCurrentSubTab('memes')}
@@ -1348,11 +1548,13 @@ const visibleSubAntraege = useMemo(
                   )}
                 </div>
                 {!isSidebarCollapsed && (
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
-                    currentSubTab === 'memes'
-                      ? 'bg-white text-pink-900'
-                      : 'bg-slate-800 text-slate-400'
-                  }`}>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ml-1.5 ${
+                      currentSubTab === 'memes'
+                        ? 'bg-white text-pink-900'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
                     {session.memes.length}
                   </span>
                 )}
@@ -1386,294 +1588,398 @@ const visibleSubAntraege = useMemo(
 
         {/* Right Main Content Pane */}
         <main className="flex-1 min-w-0 w-full space-y-5">
-
-      {/* Subtab 1: Anträge & Wortmeldungen */}
-      {currentSubTab === 'antraege' && canSeeTab('antraege') && (
-        <div className="space-y-5">
-          {/* ========================================================================= */}
-          {/* A: STRATEGIEFÜHRUNGS-VIEW (Alle Anträge untereinander sichtbar & aufrufbar) */}
-          {/* ========================================================================= */}
-          {isStrategyView ? (
+          {/* Subtab 1: Anträge & Wortmeldungen */}
+          {currentSubTab === 'antraege' && canSeeTab('antraege') && (
             <div className="space-y-5">
-              {/* Active Plenum Banner & Sub-Motions for Leadership */}
-              {activeAntrag && (
-                <div
-                  style={{
-                    opacity: decisionOpacity,
-                    transition: 'opacity 0.1s linear',
-                  }}
-                  className="space-y-4"
-                >
-                  <div
-                    className={`border-2 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col gap-3 transition-colors duration-300 animate-in fade-in ${
-                      activeAntrag.plenumResult === 'ANGENOMMEN'
-                        ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-emerald-400 ring-2 ring-emerald-400/40'
-                        : activeAntrag.plenumResult === 'ABGELEHNT'
-                        ? 'bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/80 border-rose-500 ring-2 ring-rose-500/40'
-                        : 'bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/60 border-sky-400'
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="relative flex h-4 w-4 shrink-0">
-                          {activeAntrag.plenumResult === 'ANGENOMMEN' ? (
-                            <Check className="w-5 h-5 text-emerald-400 stroke-[3]" />
-                          ) : activeAntrag.plenumResult === 'ABGELEHNT' ? (
-                            <X className="w-5 h-5 text-rose-400 stroke-[3]" />
-                          ) : (
-                            <>
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
-                            </>
-                          )}
-                        </span>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`text-[11px] font-bold uppercase tracking-wider ${
-                                activeAntrag.plenumResult === 'ANGENOMMEN'
-                                  ? 'text-emerald-300'
-                                  : activeAntrag.plenumResult === 'ABGELEHNT'
-                                  ? 'text-rose-300'
-                                  : 'text-sky-400'
-                              }`}
-                            >
-                              {activeAntrag.plenumResult === 'ANGENOMMEN'
-                                ? '🎉 Antrag vom Plenum ANGENOMMEN'
-                                : activeAntrag.plenumResult === 'ABGELEHNT'
-                                ? '❌ Antrag vom Plenum ABGELEHNT'
-                                : 'Aktuell auf allen Geräten im Plenum aktiv'}
+              {/* ========================================================================= */}
+              {/* A: STRATEGIEFÜHRUNGS-VIEW (Alle Anträge untereinander sichtbar & aufrufbar) */}
+              {/* ========================================================================= */}
+              {isStrategyView ? (
+                <div className="space-y-5">
+                  {/* Active Plenum Banner & Sub-Motions for Leadership */}
+                  {activeAntrag && (
+                    <div
+                      style={{
+                        opacity: decisionOpacity,
+                        transition: 'opacity 0.1s linear',
+                      }}
+                      className="space-y-4"
+                    >
+                      <div
+                        className={`border-2 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col gap-3 transition-colors duration-300 animate-in fade-in ${
+                          activeAntrag.plenumResult === 'ANGENOMMEN'
+                            ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-emerald-400 ring-2 ring-emerald-400/40'
+                            : activeAntrag.plenumResult === 'ABGELEHNT'
+                              ? 'bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/80 border-rose-500 ring-2 ring-rose-500/40'
+                              : 'bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/60 border-sky-400'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="relative flex h-4 w-4 shrink-0">
+                              {activeAntrag.plenumResult === 'ANGENOMMEN' ? (
+                                <Check className="w-5 h-5 text-emerald-400 stroke-[3]" />
+                              ) : activeAntrag.plenumResult === 'ABGELEHNT' ? (
+                                <X className="w-5 h-5 text-rose-400 stroke-[3]" />
+                              ) : (
+                                <>
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+                                </>
+                              )}
                             </span>
-                            
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-[11px] font-bold uppercase tracking-wider ${
+                                    activeAntrag.plenumResult === 'ANGENOMMEN'
+                                      ? 'text-emerald-300'
+                                      : activeAntrag.plenumResult === 'ABGELEHNT'
+                                        ? 'text-rose-300'
+                                        : 'text-sky-400'
+                                  }`}
+                                >
+                                  {activeAntrag.plenumResult === 'ANGENOMMEN'
+                                    ? '🎉 Antrag vom Plenum ANGENOMMEN'
+                                    : activeAntrag.plenumResult === 'ABGELEHNT'
+                                      ? '❌ Antrag vom Plenum ABGELEHNT'
+                                      : 'Aktuell auf allen Geräten im Plenum aktiv'}
+                                </span>
+                              </div>
+                              <h3 className="text-base sm:text-lg font-bold text-white">
+                                {activeAntrag.title}
+                              </h3>
+                              {activeAntrag.claimedBy && (
+                                <p className="text-xs text-emerald-400 font-medium">
+                                  🎙️ Redner:in: {activeAntrag.claimedBy}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <h3 className="text-base sm:text-lg font-bold text-white">
-                            {activeAntrag.title}
-                          </h3>
-                          {activeAntrag.claimedBy && (
-                            <p className="text-xs text-emerald-400 font-medium">
-                              🎙️ Redner:in: {activeAntrag.claimedBy}
-                            </p>
-                          )}
+
+                          {/* Action Buttons: ANGENOMMEN & ABGELEHNT oder Countdown */}
+                          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                            {/* filepath: /Users/elias/Elias/Antigravity/SiP/src/sip/components/SipMainView.tsx */}
+                            {!activeAntrag.plenumResult ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={unfinishedSubAntraege.length > 0}
+                                  onClick={() => handleDecideAntrag(activeAntrag.id, 'ANGENOMMEN')}
+                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                                >
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                  <span>ANGENOMMEN</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={unfinishedSubAntraege.length > 0}
+                                  onClick={() => handleDecideAntrag(activeAntrag.id, 'ABGELEHNT')}
+                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs"
+                                >
+                                  <X className="w-4 h-4 stroke-[3]" />
+                                  <span>ABGELEHNT</span>
+                                </button>
+                              </>
+                            ) : !activeAntrag.plenumResultAt ? (
+                              <button
+                                type="button"
+                                onClick={handleClearActiveAntrag}
+                                className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                              >
+                                Schließen
+                              </button>
+                            ) : (
+                              <span
+                                className={`rounded-xl border px-3 py-1.5 text-xs font-black ${
+                                  activeAntrag.plenumResult === 'ANGENOMMEN'
+                                    ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300'
+                                    : 'border-rose-500/40 bg-rose-500/20 text-rose-300'
+                                }`}
+                              >
+                                Schließt in {decisionRemainingSeconds}s...
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Action Buttons: ANGENOMMEN & ABGELEHNT oder Countdown */}
-                      <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                        {!activeAntrag.plenumResult ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleDecideAntrag(activeAntrag.id, 'ANGENOMMEN')}
-                              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition"
-                              title="Antrag als ANGENOMMEN kennzeichnen (10s Timer startet)"
-                            >
-                              <Check className="w-4 h-4 stroke-[3]" />
-                              <span>ANGENOMMEN</span>
-                            </button>
+                      {/* Nebenanträge zu diesem aktiven Hauptantrag */}
+                      <div className="bg-gradient-to-r from-purple-950/30 via-slate-900 to-indigo-950/30 border-2 border-purple-500/40 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-purple-500/20">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center shrink-0">
+                              <Sparkles className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                                <span>Nebenanträge zur laufenden Debatte</span>
+                                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
+                                  {visibleSubAntraege.length}
+                                </span>
+                              </h3>
+                              <p className="text-xs text-slate-400">
+                                Zusatzanträge & Wortmeldungen zu {activeAntrag.title} (ÄA, EA, SA,
+                                WM)
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Option, eigene Nebenanträge zu erstellen: Vor allen vorgefertigten Nebenanträgen */}
+                        {/* Option, eigene Nebenanträge zu erstellen */}
+                        {canEditTab('antraege') && !isGuestPreview && (
+                          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-slate-950 to-indigo-950/40 border border-sky-500/30">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Sparkles className="w-4 h-4 text-sky-400" />
+                              <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-sky-300">
+                                Eigenen Nebenantrag oder Wortmeldung erstellen
+                              </h4>
+                            </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDecideAntrag(activeAntrag.id, 'ABGELEHNT')}
-                              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-md shadow-rose-600/20 cursor-pointer transition"
-                              title="Antrag als ABGELEHNT kennzeichnen (10s Timer startet)"
-                            >
-                              <X className="w-4 h-4 stroke-[3]" />
-                              <span>ABGELEHNT</span>
-                            </button>
-                          </>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'AAA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-sky-500/20 border border-sky-500/40 text-sky-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">✏️ ÄA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Abänderungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'EA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">➕ EA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Erweiterungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'SA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-rose-500/20 border border-rose-500/40 text-rose-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">❌ SA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Streichungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'ENDE_DEBATTE',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-purple-500/20 border border-purple-500/40 text-purple-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">⏹ Ende der Debatte</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Debatte beenden
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'ENDE_REDNER',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">🎙 Ende Redner:innenliste</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Redeliste schließen
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'WM',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-amber-500/40 text-amber-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">🙋 WM</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Wortmeldung
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        )}{' '}
+                        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                          <span className="mr-1 text-xs font-semibold text-slate-400">
+                            Nebenanträge filtern:
+                          </span>
+
+                          {(
+                            [
+                              'ALL',
+                              'AAA',
+                              'EA',
+                              'SA',
+                              'ENDE_DEBATTE',
+                              'ENDE_REDNER',
+                              'WM',
+                              'UNCLAIMED',
+                            ] as const
+                          ).map((type) => {
+                            const active = subAntragTypeFilter === type;
+
+                            const colors = active
+                              ? 'bg-sky-500 border-sky-300 text-slate-950 ring-2 ring-sky-300/70 shadow-lg shadow-sky-500/30'
+                              : type === 'UNCLAIMED'
+                                ? 'bg-violet-500/10 border-violet-500/30 text-violet-300 hover:bg-violet-500/20'
+                                : type === 'AAA'
+                                  ? 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
+                                  : type === 'EA'
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                                    : type === 'SA'
+                                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
+                                      : type === 'WM'
+                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
+
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setSubAntragTypeFilter(type)}
+                                aria-pressed={active}
+                                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
+                              >
+                                {type === 'ALL'
+                                  ? 'Alle Typen'
+                                  : type === 'UNCLAIMED'
+                                    ? 'Ungeclaimt'
+                                    : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Liste der Nebenanträge (von Mitgliedern eingereichte IMMER ganz oben) */}
+                        {visibleSubAntraege.length === 0 ? (
+                          <div className="p-5 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-slate-400 text-xs">
+                            Keine Nebenanträge dieses Typs vorhanden
+                          </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 ${
-                                activeAntrag.plenumResult === 'ANGENOMMEN'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                              }`}
-                            >
-                              <span>Schließt in {decisionRemainingSeconds}s...</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={handleClearActiveAntrag}
-                              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium cursor-pointer"
-                              title="Sofort schließen"
-                            >
-                              Sofort schließen
-                            </button>
+                          <div className="space-y-3">
+                            {visibleSubAntraege.map((antrag) => (
+                              <div key={antrag.id}>
+                                <AntragCard
+                                  antrag={antrag}
+                                  currentUserName={currentUserName}
+                                  isStrategieLeader
+                                  onClaim={handleClaimAntrag}
+                                  onAssignClaim={(id, name) => handleClaimAntrag(id, name)}
+                                  onUnclaim={handleUnclaimAntrag}
+                                  onActivate={() => {}}
+                                  onEdit={(a) => setEditingAntrag(a)}
+                                  onDelete={handleDeleteAntrag}
+                                  onApprove={handleApproveAntrag}
+                                  onReject={handleRejectAntrag}
+                                />
+
+                                {isStrategyView && antrag.type !== 'WM' && (
+                                  <div className="mt-2 flex items-center justify-end gap-2">
+                                    {!antrag.plenumResult ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDecideAntrag(antrag.id, 'ANGENOMMEN')
+                                          }
+                                          className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                        >
+                                          Angenommen
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecideAntrag(antrag.id, 'ABGELEHNT')}
+                                          className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
+                                        >
+                                          Abgelehnt
+                                        </button>
+                                      </>
+                                    ) : !antrag.plenumResultAt ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setCloseConfirmationAntragId(antrag.id);
+                                          setShowCloseConfirmation(true);
+                                        }}
+                                        className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                                      >
+                                        Schließen
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs font-bold text-slate-300">
+                                        Schließt in{' '}
+                                        {Math.max(
+                                          0,
+                                          Math.ceil(
+                                            (DECISION_FADE_DURATION_MS -
+                                              (decisionNow -
+                                                new Date(antrag.plenumResultAt).getTime())) /
+                                              1000,
+                                          ),
+                                        )}
+                                        s…
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  {/* Nebenanträge zu diesem aktiven Hauptantrag */}
-                  <div className="bg-gradient-to-r from-purple-950/30 via-slate-900 to-indigo-950/30 border-2 border-purple-500/40 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-purple-500/20">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center shrink-0">
-                          <Sparkles className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                            <span>Nebenanträge zur laufenden Debatte</span>
-                            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
-                              {visibleSubAntraege.length}
-                            </span>
-                          </h3>
-                          <p className="text-xs text-slate-400">
-                            Zusatzanträge & Wortmeldungen zu {activeAntrag.title} (ÄA, EA, SA, WM)
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Option, eigene Nebenanträge zu erstellen: Vor allen vorgefertigten Nebenanträgen */}
-                                        {/* Option, eigene Nebenanträge zu erstellen */}
-                    {canEditTab('antraege') && !isGuestPreview && (
-                      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-slate-950 to-indigo-950/40 border border-sky-500/30">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Sparkles className="w-4 h-4 text-sky-400" />
-                          <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-sky-300">
-                            Eigenen Nebenantrag oder Wortmeldung erstellen
-                          </h4>
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'AAA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-sky-500/20 border border-sky-500/40 text-sky-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">✏️ ÄA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Abänderungsantrag</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'EA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">➕ EA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Erweiterungsantrag</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'SA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-rose-500/20 border border-rose-500/40 text-rose-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">❌ SA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Streichungsantrag</span>
-                          </button>
-
-                                                    <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({
-                                defaultType: 'ENDE_DEBATTE',
-                                parentAntrag: activeAntrag,
-                              });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-purple-500/20 border border-purple-500/40 text-purple-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">⏹ Ende der Debatte</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              Debatte beenden
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({
-                                defaultType: 'ENDE_REDNER',
-                                parentAntrag: activeAntrag,
-                              });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">🎙 Ende Redner:innenliste</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              Redeliste schließen
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'WM', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-amber-500/40 text-amber-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">🙋 WM</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Wortmeldung</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                    <span className="mr-1 text-xs font-semibold text-slate-400">
-                      Nebenanträge filtern:
-                    </span>
-
-                    {(['ALL', 'AAA', 'EA', 'SA', 'ENDE_DEBATTE', 'ENDE_REDNER', 'WM'] as const).map((type) => {
-                      const active = subAntragTypeFilter === type;
-
-                      const colors =
-                        type === 'AAA'
-                          ? active
-                            ? 'bg-sky-500 border-sky-400 text-slate-950'
-                            : 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
-                          : type === 'EA'
-                          ? active
-                            ? 'bg-emerald-500 border-emerald-400 text-slate-950'
-                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-                          : type === 'SA'
-                          ? active
-                            ? 'bg-rose-500 border-rose-400 text-white'
-                            : 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
-                          : type === 'WM'
-                          ? active
-                            ? 'bg-amber-400 border-amber-300 text-slate-950'
-                            : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-                          : active
-                          ? 'bg-slate-300 border-slate-200 text-slate-950'
-                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
-
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setSubAntragTypeFilter(type)}
-                          aria-pressed={active}
-                          className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
-                        >
-                          {type === 'ALL'
-                            ? 'Alle Typen'
-                            : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
-                        </button>
-                    );
-                    })}
-                  </div>
-                    {/* Liste der Nebenanträge (von Mitgliedern eingereichte IMMER ganz oben) */}
-                    {visibleSubAntraege.length === 0 ? (
-                      <div className="p-5 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-slate-400 text-xs">
-                        Keine Nebenanträge dieses Typs vorhanden
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {visibleSubAntraege.map((antrag) => (
+                  )}
+                  {hauptAntraege.filter((antrag) => antrag.id !== activeAntrag?.id).length > 0 ? (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-bold text-slate-300">
+                        Weitere Hauptanträge (
+                        {hauptAntraege.filter((antrag) => antrag.id !== activeAntrag?.id).length})
+                      </h3>
+                      {hauptAntraege
+                        .filter((antrag) => antrag.id !== activeAntrag?.id)
+                        .map((antrag) => (
                           <AntragCard
                             key={antrag.id}
                             antrag={antrag}
@@ -1682,25 +1988,26 @@ const visibleSubAntraege = useMemo(
                             onClaim={handleClaimAntrag}
                             onAssignClaim={(id, name) => handleClaimAntrag(id, name)}
                             onUnclaim={handleUnclaimAntrag}
-                            onActivate={() => {}}
-                            onEdit={(a) => setEditingAntrag(a)}
+                            onActivate={() => setConfirmActivateAntrag(antrag)}
+                            onEdit={(item) => setEditingAntrag(item)}
                             onDelete={handleDeleteAntrag}
                             onApprove={handleApproveAntrag}
                             onReject={handleRejectAntrag}
                           />
                         ))}
-                      </div>
-                                       )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-center text-xs text-slate-400">
+                      Keine weiteren offenen Hauptanträge.
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
+              ) : (
                 /* ========================================================================= */
                 /* B: MITGLIEDER-VIEW (Immer nur der von der Strategieführung freigegebene TOP) */
                 /* ========================================================================= */
                 <div className="space-y-5">
-                  {activeAntrag && !isDecisionExpired ? (
+                  {activeAntrag ? (
                     <div
                       style={{
                         opacity: decisionOpacity,
@@ -1714,8 +2021,8 @@ const visibleSubAntraege = useMemo(
                           activeAntrag.plenumResult === 'ANGENOMMEN'
                             ? 'bg-slate-900 border-emerald-400 ring-2 ring-emerald-400/40 shadow-emerald-500/20'
                             : activeAntrag.plenumResult === 'ABGELEHNT'
-                            ? 'bg-slate-900 border-rose-500 ring-2 ring-rose-500/40 shadow-rose-500/20'
-                            : 'bg-slate-900 border-sky-400 shadow-sky-500/15'
+                              ? 'bg-slate-900 border-rose-500 ring-2 ring-rose-500/40 shadow-rose-500/20'
+                              : 'bg-slate-900 border-sky-400 shadow-sky-500/15'
                         }`}
                       >
                         {/* Background glow */}
@@ -1724,8 +2031,8 @@ const visibleSubAntraege = useMemo(
                             activeAntrag.plenumResult === 'ANGENOMMEN'
                               ? 'bg-emerald-500/20'
                               : activeAntrag.plenumResult === 'ABGELEHNT'
-                              ? 'bg-rose-500/20'
-                              : 'bg-sky-500/15'
+                                ? 'bg-rose-500/20'
+                                : 'bg-sky-500/15'
                           }`}
                         />
 
@@ -1735,12 +2042,12 @@ const visibleSubAntraege = useMemo(
                             {activeAntrag.plenumResult === 'ANGENOMMEN' ? (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black uppercase tracking-wider">
                                 <Check className="w-4 h-4 text-emerald-400 stroke-[3]" />
-                                <span>Vom Plenum ANGENOMMEN (schließt in {decisionRemainingSeconds}s...)</span>
+                                <span>Vom Plenum ANGENOMMEN</span>{' '}
                               </span>
                             ) : activeAntrag.plenumResult === 'ABGELEHNT' ? (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-black uppercase tracking-wider">
                                 <X className="w-4 h-4 text-rose-400 stroke-[3]" />
-                                <span>Vom Plenum ABGELEHNT (schließt in {decisionRemainingSeconds}s...)</span>
+                                <span>Vom Plenum ABGELEHNT</span>{' '}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-black uppercase tracking-wider">
@@ -1751,16 +2058,19 @@ const visibleSubAntraege = useMemo(
 
                             <span
                               className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                                ANTRAG_TYPE_CONFIG[activeAntrag.type]?.badgeColor || 'bg-slate-800 text-slate-200'
+                                ANTRAG_TYPE_CONFIG[activeAntrag.type]?.badgeColor ||
+                                'bg-slate-800 text-slate-200'
                               }`}
                             >
-                              {ANTRAG_TYPE_CONFIG[activeAntrag.type]?.shortLabel} • {ANTRAG_TYPE_CONFIG[activeAntrag.type]?.label}
+                              {ANTRAG_TYPE_CONFIG[activeAntrag.type]?.shortLabel} •{' '}
+                              {ANTRAG_TYPE_CONFIG[activeAntrag.type]?.label}
                             </span>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-semibold text-sky-300 bg-sky-950/80 border border-sky-500/40 px-3 py-1 rounded-xl shadow-sm">
-                              Antragsteller:in: <strong className="text-white">{activeAntrag.author}</strong>
+                              Antragsteller:in:{' '}
+                              <strong className="text-white">{activeAntrag.author}</strong>
                             </span>
                             {activeAntrag.lineOrParagraph && (
                               <span className="text-xs font-mono px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
@@ -1781,7 +2091,9 @@ const visibleSubAntraege = useMemo(
                             <div className="flex items-center gap-2">
                               <Mic className="w-4 h-4 text-indigo-400" />
                               <h3 className="text-xs sm:text-sm font-bold text-indigo-300">
-                                {activeAntrag.rede ? `Vorbereitete Rede für das Plenum (${activeAntrag.author})` : 'Antragstext'}
+                                {activeAntrag.rede
+                                  ? `Vorbereitete Rede für das Plenum (${activeAntrag.author})`
+                                  : 'Antragstext'}
                               </h3>
                             </div>
                             {isHeroTextExpanded && activeAntrag.rede && (
@@ -1817,7 +2129,11 @@ const visibleSubAntraege = useMemo(
                             className={`text-slate-200 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-sans cursor-pointer hover:text-white transition ${
                               isHeroTextExpanded ? '' : 'line-clamp-2'
                             }`}
-                            title={isHeroTextExpanded ? 'Klicken zum Einklappen' : 'Klicken zum Aufklappen'}
+                            title={
+                              isHeroTextExpanded
+                                ? 'Klicken zum Einklappen'
+                                : 'Klicken zum Aufklappen'
+                            }
                           >
                             {activeAntrag.rede || activeAntrag.content}
                           </div>
@@ -1843,383 +2159,483 @@ const visibleSubAntraege = useMemo(
                         </div>
 
                         {/* 2. Forderungen des Vorarlberger Schüler:innenparlaments (standardmäßig ausgeklappt) */}
-                        {activeAntrag.forderungspunkte && activeAntrag.forderungspunkte.length > 0 && (
-                          <div className="bg-gradient-to-r from-sky-950/60 via-slate-950 to-emerald-950/50 border border-sky-500/40 rounded-2xl p-4 sm:p-5 shadow-lg">
-                            <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-sky-300 mb-3 pb-2 border-b border-sky-500/20">
-                              <Target className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400 shrink-0" />
-                              <span>Daher fordert das Vorarlberger Schüler:innenparlament ({activeAntrag.forderungspunkte.length}):</span>
+                        {activeAntrag.forderungspunkte &&
+                          activeAntrag.forderungspunkte.length > 0 && (
+                            <div className="bg-gradient-to-r from-sky-950/60 via-slate-950 to-emerald-950/50 border border-sky-500/40 rounded-2xl p-4 sm:p-5 shadow-lg">
+                              <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-sky-300 mb-3 pb-2 border-b border-sky-500/20">
+                                <Target className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400 shrink-0" />
+                                <span>
+                                  Daher fordert das Vorarlberger Schüler:innenparlament (
+                                  {activeAntrag.forderungspunkte.length}):
+                                </span>
+                              </div>
+                              <ul className="space-y-2.5">
+                                {activeAntrag.forderungspunkte.map((fp, idx) => (
+                                  <li
+                                    key={idx}
+                                    className="flex items-start gap-3 text-xs sm:text-sm text-slate-100"
+                                  >
+                                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-500/20 text-sky-300 font-bold text-xs shrink-0 mt-0.5 border border-sky-500/40">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="leading-relaxed font-medium">{fp}</span>
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
-                            <ul className="space-y-2.5">
-                              {activeAntrag.forderungspunkte.map((fp, idx) => (
-                                <li key={idx} className="flex items-start gap-3 text-xs sm:text-sm text-slate-100">
-                                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-500/20 text-sky-300 font-bold text-xs shrink-0 mt-0.5 border border-sky-500/40">
-                                    {idx + 1}
-                                  </span>
-                                  <span className="leading-relaxed font-medium">{fp}</span>
-                                </li>
-                              ))}
-                            </ul>
+                          )}
+                      </div>
+
+                      {/* Claimbare Nebenanträge & Option, eigene Nebenanträge zu erstellen */}
+                      <div className="bg-gradient-to-r from-purple-950/20 via-slate-900 to-indigo-950/20 border-2 border-purple-500/30 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-purple-500/20">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center shrink-0">
+                              <Sparkles className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                                <span>Nebenanträge zur laufenden Debatte</span>
+                                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
+                                  {visibleSubAntraege.length}
+                                </span>
+                              </h3>
+                              <p className="text-xs text-slate-400">
+                                Direkt hier claimen oder eigenen Zusatzantrag einbringen
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Option, eigene Nebenanträge zu erstellen: Vor allen vorgefertigten Nebenanträgen */}
+                        {/* Option, eigene Nebenanträge zu erstellen */}
+                        {canEditTab('antraege') && !isGuestPreview && (
+                          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-slate-950 to-indigo-950/40 border border-sky-500/30">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Sparkles className="w-4 h-4 text-sky-400" />
+                              <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-sky-300">
+                                Eigenen Nebenantrag oder Wortmeldung erstellen
+                              </h4>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'AAA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-sky-500/20 border border-sky-500/40 text-sky-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">✏️ ÄA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Abänderungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'EA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">➕ EA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Erweiterungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'SA',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-rose-500/20 border border-rose-500/40 text-rose-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">❌ SA</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Streichungsantrag
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'ENDE_DEBATTE',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-purple-500/20 border border-purple-500/40 text-purple-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">⏹ Ende der Debatte</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Debatte beenden
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'ENDE_REDNER',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">🎙 Ende Redner:innenliste</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Redeliste schließen
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewAntragPreset({
+                                    defaultType: 'WM',
+                                    parentAntrag: activeAntrag,
+                                  });
+                                  setShowNewAntragModal(true);
+                                }}
+                                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-amber-500/40 text-amber-200 transition text-center cursor-pointer group shadow"
+                              >
+                                <span className="text-sm font-black">🙋 WM</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  Wortmeldung
+                                </span>
+                              </button>
+                            </div>
                           </div>
                         )}
+                        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                          <span className="mr-1 text-xs font-semibold text-slate-400">
+                            Nebenanträge filtern:
+                          </span>
+                          {(
+                            [
+                              'ALL',
+                              'AAA',
+                              'EA',
+                              'SA',
+                              'ENDE_DEBATTE',
+                              'ENDE_REDNER',
+                              'WM',
+                              'UNCLAIMED',
+                            ] as const
+                          ).map((type) => {
+                            const active = subAntragTypeFilter === type;
 
-                  </div>
-
-                  {/* Claimbare Nebenanträge & Option, eigene Nebenanträge zu erstellen */}
-                  <div className="bg-gradient-to-r from-purple-950/20 via-slate-900 to-indigo-950/20 border-2 border-purple-500/30 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-purple-500/20">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center shrink-0">
-                          <Sparkles className="w-4 h-4" />
+                            const colors = active
+                              ? 'bg-sky-500 border-sky-300 text-slate-950 ring-2 ring-sky-300/70 shadow-lg shadow-sky-500/30'
+                              : type === 'UNCLAIMED'
+                                ? 'bg-violet-500/10 border-violet-500/30 text-violet-300 hover:bg-violet-500/20'
+                                : type === 'AAA'
+                                  ? 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
+                                  : type === 'EA'
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                                    : type === 'SA'
+                                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
+                                      : type === 'WM'
+                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setSubAntragTypeFilter(type)}
+                                aria-pressed={active}
+                                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
+                              >
+                                {type === 'ALL'
+                                  ? 'Alle Typen'
+                                  : type === 'UNCLAIMED'
+                                    ? 'Ungeclaimt'
+                                    : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
+                              </button>
+                            );
+                          })}
                         </div>
-                        <div>
-                          <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                            <span>Nebenanträge zur laufenden Debatte</span>
-                            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
-                              {visibleSubAntraege.length}
-                            </span>
-                          </h3>
-                          <p className="text-xs text-slate-400">
-                            Direkt hier claimen oder eigenen Zusatzantrag einbringen
-                          </p>
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Option, eigene Nebenanträge zu erstellen: Vor allen vorgefertigten Nebenanträgen */}
-                                     {/* Option, eigene Nebenanträge zu erstellen */}
-                    {canEditTab('antraege') && !isGuestPreview && (
-                      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-950/40 via-slate-950 to-indigo-950/40 border border-sky-500/30">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Sparkles className="w-4 h-4 text-sky-400" />
-                          <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-sky-300">
-                            Eigenen Nebenantrag oder Wortmeldung erstellen
-                          </h4>
-                        </div>
+                        {/* Liste der Nebenanträge (Eigene Anträge GANZ OBEN) */}
+                        {visibleSubAntraege.length === 0 ? (
+                          <div className="p-5 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-slate-400 text-xs">
+                            Keine Nebenanträge dieses Typs vorhanden
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {visibleSubAntraege.map((antrag) => (
+                              <div key={antrag.id}>
+                                <AntragCard
+                                  antrag={antrag}
+                                  currentUserName={currentUserName}
+                                  isStrategieLeader
+                                  onClaim={handleClaimAntrag}
+                                  onAssignClaim={(id, name) => handleClaimAntrag(id, name)}
+                                  onUnclaim={handleUnclaimAntrag}
+                                  onActivate={() => {}}
+                                  onEdit={(a) => setEditingAntrag(a)}
+                                  onDelete={handleDeleteAntrag}
+                                  onApprove={handleApproveAntrag}
+                                  onReject={handleRejectAntrag}
+                                />
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'AAA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-sky-500/20 border border-sky-500/40 text-sky-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">✏️ ÄA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Abänderungsantrag</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'EA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">➕ EA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Erweiterungsantrag</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'SA', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-rose-500/20 border border-rose-500/40 text-rose-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">❌ SA</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Streichungsantrag</span>
-                          </button>
-                            
-                                                      <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({
-                                defaultType: 'ENDE_DEBATTE',
-                                parentAntrag: activeAntrag,
-                              });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-purple-500/20 border border-purple-500/40 text-purple-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">⏹ Ende der Debatte</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              Debatte beenden
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({
-                                defaultType: 'ENDE_REDNER',
-                                parentAntrag: activeAntrag,
-                              });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">🎙 Ende Redner:innenliste</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              Redeliste schließen
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewAntragPreset({ defaultType: 'WM', parentAntrag: activeAntrag });
-                              setShowNewAntragModal(true);
-                            }}
-                            className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-amber-500/40 text-amber-200 transition text-center cursor-pointer group shadow"
-                          >
-                            <span className="text-sm font-black">🙋 WM</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">Wortmeldung</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                    <span className="mr-1 text-xs font-semibold text-slate-400">
-                      Nebenanträge filtern:
-                    </span>
-
-                    {(['ALL', 'AAA', 'EA', 'SA', 'ENDE_DEBATTE', 'ENDE_REDNER', 'WM'] as const).map((type) => {
-                      const active = subAntragTypeFilter === type;
-
-                      const colors =
-                        type === 'AAA'
-                          ? active
-                            ? 'bg-sky-500 border-sky-400 text-slate-950'
-                            : 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
-                          : type === 'EA'
-                          ? active
-                            ? 'bg-emerald-500 border-emerald-400 text-slate-950'
-                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-                          : type === 'SA'
-                          ? active
-                            ? 'bg-rose-500 border-rose-400 text-white'
-                            : 'bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20'
-                          : type === 'WM'
-                          ? active
-                            ? 'bg-amber-400 border-amber-300 text-slate-950'
-                            : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-                          : active
-                          ? 'bg-slate-300 border-slate-200 text-slate-950'
-                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
-
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setSubAntragTypeFilter(type)}
-                          aria-pressed={active}
-                          className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${colors}`}
-                        >
-                          {type === 'ALL'
-                            ? 'Alle Typen'
-                            : ANTRAG_TYPE_CONFIG[type]?.shortLabel || type}
-                        </button>
-                    );
-                    })}
-                  </div>
-
-                    {/* Liste der Nebenanträge (Eigene Anträge GANZ OBEN) */}
-                    {visibleSubAntraege.length === 0 ? (
-                      <div className="p-5 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-slate-400 text-xs">
-                       Keine Nebenanträge dieses Typs vorhanden
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {visibleSubAntraege.map((sub) => (
-                          <AntragCard
-                            key={sub.id}
-                            antrag={sub}
-                            currentUserName={currentUserName}
-                            isStrategieLeader={false}
-                            onClaim={handleClaimAntrag}
-                            onAssignClaim={(id, name) => handleClaimAntrag(id, name)}
-                            onUnclaim={handleUnclaimAntrag}
-                            onActivate={() => {}}
-                            onEdit={() => {}}
-                            onDelete={() => {}}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Warteraum wenn noch kein Antrag aufgerufen ist */
-                <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center text-slate-400">
-                  <div className="relative mb-5">
-                    <div className="w-16 h-16 rounded-3xl bg-sky-500/20 text-sky-400 border border-sky-500/40 flex items-center justify-center animate-pulse">
-                      <Radio className="w-8 h-8" />
-                    </div>
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 animate-ping" />
-                  </div>
-
-                  <span className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-1">
-                    Plenum bereit
-                  </span>
-                  <h3 className="text-xl sm:text-2xl font-black text-white mb-2">
-                    Warte auf Aufruf der Strategieführung...
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
-                    Sobald die Strategieführung den nächsten Antrag im Plenum aufruft, ploppt dieser automatisch mit Vollbild-Overlay auf deinem Bildschirm auf.
-                  </p>
-                  {canEditTab('antraege') && !isGuestPreview && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewAntragPreset(null);
-                      setShowNewAntragModal(true);
-                    }}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm transition cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Antrag / Wortmeldung vorab vorbereiten</span>
-                  </button>
-                  )}
-                  {/* Eingereichte Anträge aus dem Plenum im Warteraum anzeigen (während der Pause keine Nebenanträge zu vergangenen Hauptanträgen) */}
-                  {warteraumAntraege.length > 0 && (
-                    <div className="w-full max-w-2xl mt-8 text-left bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                        Aus dem Plenum eingereichte Anträge:
-                      </h4>
-                      <div className="space-y-2.5">
-                        {warteraumAntraege.map((a) => (
-                            <div key={a.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-                              <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="font-bold text-slate-200">{a.title}</span>
-                                {a.status === 'pending_approval' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                                    ⏳ Bestätigung ausstehend
-                                  </span>
-                                ) : a.status === 'approved' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                                    {a.isEditedByAdmin ? '✏️ Geändert von Strategieführung' : '✅ Bestätigt'}
-                                  </span>
-                                ) : a.status === 'rejected' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold">
-                                    ❌ Abgelehnt
-                                  </span>
-                                ) : null}
+                                {isStrategyView && antrag.type !== 'WM' && (
+                                  <div className="mt-2 flex items-center justify-end gap-2">
+                                    {!antrag.plenumResult ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDecideAntrag(antrag.id, 'ANGENOMMEN')
+                                          }
+                                          className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                        >
+                                          Angenommen
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecideAntrag(antrag.id, 'ABGELEHNT')}
+                                          className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
+                                        >
+                                          Abgelehnt
+                                        </button>
+                                      </>
+                                    ) : !antrag.plenumResultAt ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setCloseConfirmationAntragId(antrag.id);
+                                          setShowCloseConfirmation(true);
+                                        }}
+                                        className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                                      >
+                                        Schließen
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs font-bold text-slate-300">
+                                        Schließt in{' '}
+                                        {Math.max(
+                                          0,
+                                          Math.ceil(
+                                            (DECISION_FADE_DURATION_MS -
+                                              (decisionNow -
+                                                new Date(antrag.plenumResultAt).getTime())) /
+                                              1000,
+                                          ),
+                                        )}
+                                        s…
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              <span className="text-[11px] text-slate-400">Antragsteller:in: {a.author}</span>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  ) : (
+                    /* Warteraum wenn noch kein Antrag aufgerufen ist */
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center text-slate-400">
+                      <div className="relative mb-5">
+                        <div className="w-16 h-16 rounded-3xl bg-sky-500/20 text-sky-400 border border-sky-500/40 flex items-center justify-center animate-pulse">
+                          <Radio className="w-8 h-8" />
+                        </div>
+                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 animate-ping" />
+                      </div>
+
+                      <span className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-1">
+                        Plenum bereit
+                      </span>
+                      <h3 className="text-xl sm:text-2xl font-black text-white mb-2">
+                        Warte auf Aufruf der Strategieführung...
+                      </h3>
+                      <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
+                        Sobald die Strategieführung den nächsten Antrag im Plenum aufruft, ploppt
+                        dieser automatisch mit Vollbild-Overlay auf deinem Bildschirm auf.
+                      </p>
+                      {canEditTab('antraege') && !isGuestPreview && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewAntragPreset(null);
+                            setShowNewAntragModal(true);
+                          }}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm transition cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Antrag / Wortmeldung vorab vorbereiten</span>
+                        </button>
+                      )}
+                      {/* Eingereichte Anträge aus dem Plenum im Warteraum anzeigen (während der Pause keine Nebenanträge zu vergangenen Hauptanträgen) */}
+                      {warteraumAntraege.length > 0 && (
+                        <div className="w-full max-w-2xl mt-8 text-left bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                            Aus dem Plenum eingereichte Anträge:
+                          </h4>
+                          <div className="space-y-2.5">
+                            {warteraumAntraege.map((a) => (
+                              <div
+                                key={a.id}
+                                className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs"
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="font-bold text-slate-200">{a.title}</span>
+                                  {a.status === 'pending_approval' ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                                      ⏳ Bestätigung ausstehend
+                                    </span>
+                                  ) : a.status === 'approved' ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
+                                      {a.isEditedByAdmin
+                                        ? '✏️ Geändert von Strategieführung'
+                                        : '✅ Bestätigt'}
+                                    </span>
+                                  ) : a.status === 'rejected' ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold">
+                                      ❌ Abgelehnt
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <span className="text-[11px] text-slate-400">
+                                  Antragsteller:in: {a.author}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
-
-
             </div>
           )}
-        </div>
-      )}
 
-      {/* Subtab: Vergangene Anträge */}
-      {currentSubTab === 'past_antraege' && canSeeTab('past_antraege') && (
-        <div className="space-y-4 animate-in fade-in">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
-                <History className="w-5 h-5" />
+          {/* Subtab: Vergangene Anträge */}
+          {currentSubTab === 'past_antraege' && canSeeTab('past_antraege') && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                    <History className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-black text-white">
+                      Vergangene Anträge des Plenums
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Bereits abgestimmte Hauptanträge inklusive aller dazugehörigen Nebenanträge
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                    <span>
+                      {pastHauptAntraege.filter((a) => a.plenumResult === 'ANGENOMMEN').length}{' '}
+                      Angenommen
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold">
+                    <X className="w-3.5 h-3.5 text-rose-400 stroke-[3]" />
+                    <span>
+                      {pastHauptAntraege.filter((a) => a.plenumResult === 'ABGELEHNT').length}{' '}
+                      Abgelehnt
+                    </span>
+                  </span>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg sm:text-xl font-black text-white">
-                  Vergangene Anträge des Plenums
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Bereits abgestimmte Hauptanträge inklusive aller dazugehörigen Nebenanträge
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
-                <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
-                <span>{pastHauptAntraege.filter((a) => a.plenumResult === 'ANGENOMMEN').length} Angenommen</span>
-              </span>
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold">
-                <X className="w-3.5 h-3.5 text-rose-400 stroke-[3]" />
-                <span>{pastHauptAntraege.filter((a) => a.plenumResult === 'ABGELEHNT').length} Abgelehnt</span>
-              </span>
-            </div>
-          </div>
+              {pastHauptAntraege.length === 0 ? (
+                <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center text-slate-400">
+                  <History className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+                  <h3 className="text-base font-bold text-slate-300 mb-1">
+                    Noch keine vergangenen Anträge
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto mb-6 leading-relaxed">
+                    Sobald im Plenum ein Antrag als ANGENOMMEN oder ABGELEHNT markiert wird und
+                    ausfadet, erscheint er hier dauerhaft mit allen dazugehörigen Nebenanträgen.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pastHauptAntraege.map((hauptAntrag) => {
+                    const subAntraege = session.antraege.filter(
+                      (a) => a.parentAntragId === hauptAntrag.id && a.type !== 'HAUPTANTRAG',
+                    );
 
-          {pastHauptAntraege.length === 0 ? (
-            <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center text-slate-400">
-              <History className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-              <h3 className="text-base font-bold text-slate-300 mb-1">
-                Noch keine vergangenen Anträge
-              </h3>
-              <p className="text-xs text-slate-500 max-w-md mx-auto mb-6 leading-relaxed">
-                Sobald im Plenum ein Antrag als ANGENOMMEN oder ABGELEHNT markiert wird und ausfadet, erscheint er hier dauerhaft mit allen dazugehörigen Nebenanträgen.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {pastHauptAntraege.map((hauptAntrag) => {
-                const subAntraege = session.antraege.filter(
-                  (a) => a.parentAntragId === hauptAntrag.id && a.type !== 'HAUPTANTRAG'
-                );
-
-                return (
-                  <PastAntragCard
-                    key={hauptAntrag.id}
-                    hauptAntrag={hauptAntrag}
-                    subAntraege={subAntraege}
-                  />
-                );
-              })}
+                    return (
+                      <PastAntragCard
+                        key={hauptAntrag.id}
+                        hauptAntrag={hauptAntrag}
+                        subAntraege={subAntraege}
+                        canEditResults={isStrategyView}
+                        onSetResult={(id, result) =>
+                          sipRealtime.updateOrApproveAntrag(id, { plenumResult: result }, settings)
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Subtab 3: Google Drive & Unterlagen (Nur für Admin zugänglich) */}
-      {currentSubTab === 'drive' && canSeeTab('drive') && (
-        <DriveFolderViewer
-          driveFolderUrl={session.driveFolderUrl}
-          isStrictAdmin={isStrictAdmin}
-          sessionId={session.id}
-          onUpdateFolderUrl={handleUpdateDriveUrl}
-          onOpenParser={() => setShowParserModal(true)}
-        />
-      )}
+          {/* Subtab 3: Google Drive & Unterlagen (Nur für Admin zugänglich) */}
+          {currentSubTab === 'drive' && canSeeTab('drive') && (
+            <DriveFolderViewer
+              driveFolderUrl={session.driveFolderUrl}
+              isStrictAdmin={isStrictAdmin}
+              sessionId={session.id}
+              onUpdateFolderUrl={handleUpdateDriveUrl}
+              onOpenParser={() => setShowParserModal(true)}
+            />
+          )}
 
-      {/* Subtab 4: Meme-Feed */}
-      {currentSubTab === 'memes' && canSeeTab('memes') && (
-        <MemeFeedTab
-          memes={session.memes}
-          currentUserName={currentUserName}
-          isStrategieLeader={isStrategieLeader}
-          onAddMeme={handleAddMeme}
-          onReactMeme={handleReactMeme}
-          onDeleteMeme={(memeId) => sipRealtime.deleteMeme(memeId, settings)}
-        />
-      )}
+          {/* Subtab 4: Meme-Feed */}
+          {currentSubTab === 'memes' && canSeeTab('memes') && (
+            <MemeFeedTab
+              memes={session.memes}
+              currentUserName={currentUserName}
+              isStrategieLeader={isStrategieLeader}
+              onAddMeme={handleAddMeme}
+              onReactMeme={handleReactMeme}
+              onDeleteMeme={(memeId) => sipRealtime.deleteMeme(memeId, settings)}
+            />
+          )}
 
-      {/* Subtab 5: Archiv & Protokolle (nur Strategieführung & Admin) */}
-      {currentSubTab === 'archive' && canSeeTab('archive') && (
-        <SipArchiveView
-          currentSession={session}
-          settings={settings}
-          currentUserName={currentUserName}
-          onArchiveAndClearSession={async () => {
-            await sipRealtime.archiveAndClearCurrentSession(settings);
-          }}
-          onStartNewSession={async (options) => {
-            await sipRealtime.startNewSession(options, settings);
-          }}
-        />
-      )}
+          {/* Subtab 5: Archiv & Protokolle (nur Strategieführung & Admin) */}
+          {currentSubTab === 'archive' && canSeeTab('archive') && (
+            <SipArchiveView
+              currentSession={session}
+              settings={settings}
+              currentUserName={currentUserName}
+              onArchiveAndClearSession={async () => {
+                await sipRealtime.archiveAndClearCurrentSession(settings);
+              }}
+              onStartNewSession={async (options) => {
+                await sipRealtime.startNewSession(options, settings);
+              }}
+            />
+          )}
         </main>
       </div>
 
