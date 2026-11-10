@@ -667,8 +667,9 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
               : 'gast';
 
   const tabAccess = effectiveRoleTabAccess[activeRole];
-  const canSeeTab = (tab: SipSubTab) => !!tabAccess?.[tab]?.visible;
-  const canEditTab = (tab: SipSubTab) => !!tabAccess?.[tab]?.editable;
+  const canSeeTab = (tab: SipSubTab) => activeRole === 'admin' || !!tabAccess?.[tab]?.visible;
+
+  const canEditTab = (tab: SipSubTab) => activeRole === 'admin' || !!tabAccess?.[tab]?.editable;
 
   const canViewPastAntraege = canSeeTab('past_antraege');
   const canViewMemes = canSeeTab('memes');

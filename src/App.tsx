@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  ShieldCheck,
-  User,
-  LogOut,
-  Star,
-} from 'lucide-react';
+import { ShieldCheck, User, LogOut, Star } from 'lucide-react';
 import {
   AppSettings,
   DEFAULT_SIP_SETTINGS,
@@ -84,10 +79,10 @@ export const App: React.FC = () => {
   const lastAppliedServerUpdatedRef = useRef<string>(
     typeof window !== 'undefined'
       ? localStorage.getItem(STORAGE_KEYS.LAST_CONFIG_SERVER_UPDATED) || ''
-      : ''
+      : '',
   );
   const deletedUsernamesRef = useRef<Set<string>>(
-    new Set((settings.deletedUsernames || []).map(normalizeUsernameForComparison))
+    new Set((settings.deletedUsernames || []).map(normalizeUsernameForComparison)),
   );
   const cachedCloudExtraPayloadRef = useRef<Record<string, any>>({});
 
@@ -119,15 +114,14 @@ export const App: React.FC = () => {
     return new Date(next).toISOString();
   }
 
-  function applyCloudSettingsPayload(
-    payload: any,
-    recordUpdated?: string,
-    forceOverwrite = false
-  ) {
+  function applyCloudSettingsPayload(payload: any, recordUpdated?: string, forceOverwrite = false) {
     if (!payload || typeof payload !== 'object') return;
 
     // Niemals lokale ungespeicherte Änderungen (während eines laufenden oder nach Reload ausstehenden Syncs) überschreiben!
-    if (isSyncingConfigRef.current || Boolean(localStorage.getItem(STORAGE_KEYS.PENDING_CONFIG_SYNC))) {
+    if (
+      isSyncingConfigRef.current ||
+      Boolean(localStorage.getItem(STORAGE_KEYS.PENDING_CONFIG_SYNC))
+    ) {
       return;
     }
 
@@ -153,7 +147,7 @@ export const App: React.FC = () => {
     const remoteDeletedSet = new Set<string>(
       Array.isArray(payload.deletedUsernames)
         ? payload.deletedUsernames.filter(Boolean).map(normalizeUsernameForComparison)
-        : []
+        : [],
     );
 
     if (Array.isArray(payload.memberAccounts)) {
@@ -176,7 +170,7 @@ export const App: React.FC = () => {
       : settingsRef.current.memberAccounts;
 
     const filteredAccounts = rawAccounts.filter(
-      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username)),
     );
 
     if (recordUpdated) {
@@ -203,6 +197,11 @@ export const App: React.FC = () => {
         payload.totpBackupCodes !== undefined
           ? payload.totpBackupCodes
           : settingsRef.current.totpBackupCodes,
+      adminDashboardUsernames: Array.isArray(payload.adminDashboardUsernames)
+        ? payload.adminDashboardUsernames
+            .filter((name: unknown): name is string => typeof name === 'string' && !!name.trim())
+            .slice(0, 3)
+        : (settingsRef.current.adminDashboardUsernames ?? []),
       updatedAt: payload.updatedAt || recordUpdated || settingsRef.current.updatedAt,
     };
 
@@ -229,7 +228,7 @@ export const App: React.FC = () => {
       setCurrentUser((prev) => {
         if (prev) return prev;
         const matched = settings.memberAccounts.find(
-          (a) => a.username.toLowerCase() === settings.adminEmail?.toLowerCase()
+          (a) => a.username.toLowerCase() === settings.adminEmail?.toLowerCase(),
         );
         const adminUser: MemberAccount = matched || {
           name: 'Administrator',
@@ -331,7 +330,7 @@ export const App: React.FC = () => {
     if (!currentUser) return;
     const normCurrent = normalizeUsernameForComparison(currentUser.username);
     const matched = settings.memberAccounts.find(
-      (a) => normalizeUsernameForComparison(a.username) === normCurrent
+      (a) => normalizeUsernameForComparison(a.username) === normCurrent,
     );
     if (matched) {
       if (
@@ -365,6 +364,7 @@ export const App: React.FC = () => {
       totpSecret: targetSettings.totpSecret,
       totpEnabled: targetSettings.totpEnabled,
       totpBackupCodes: targetSettings.totpBackupCodes,
+      adminDashboardUsernames: (targetSettings.adminDashboardUsernames ?? []).slice(0, 3),
       updatedAt: targetSettings.updatedAt,
     };
 
@@ -390,7 +390,10 @@ export const App: React.FC = () => {
     if (res.data?.payload) {
       cachedCloudExtraPayloadRef.current = res.data.payload;
     }
-    if (!pendingSyncSettingsRef.current && settingsRef.current.updatedAt === targetSettings.updatedAt) {
+    if (
+      !pendingSyncSettingsRef.current &&
+      settingsRef.current.updatedAt === targetSettings.updatedAt
+    ) {
       try {
         localStorage.removeItem(STORAGE_KEYS.PENDING_CONFIG_SYNC);
       } catch (e) {}
@@ -434,7 +437,10 @@ export const App: React.FC = () => {
     }
   }
 
-  async function handleDeleteUserAccount(username: string): Promise<void> {
+  async function handleDeleteUserAccount(
+    username: string,
+    updatedSettings: AppSettings,
+  ): Promise<void> {
     const normTarget = normalizeUsernameForComparison(username);
     lastConfigMutationAtRef.current = Date.now();
     deletedUsernamesRef.current.add(normTarget);
@@ -442,25 +448,30 @@ export const App: React.FC = () => {
     const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
     const filteredAccounts = settingsRef.current.memberAccounts.filter(
       (acc) =>
-        acc.username !== username &&
         normalizeUsernameForComparison(acc.username) !== normTarget &&
-        !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+        !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username)),
     );
+    const adminDashboardUsernames = (
+      updatedSettings.adminDashboardUsernames ??
+      settingsRef.current.adminDashboardUsernames ??
+      []
+    )
+      .filter((name) => normalizeUsernameForComparison(name) !== normTarget)
+      .slice(0, 3);
 
     const nextSettings: AppSettings = {
       ...settingsRef.current,
       memberAccounts: filteredAccounts,
+      adminDashboardUsernames,
       deletedUsernames: Array.from(deletedUsernamesRef.current),
       updatedAt,
     };
 
-    // 1. Sofortiges lokales & Cross-Tab UI-Update (0ms Optimistic Update + Pending-Sync-Schutz bei F5)
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
     saveSettingsToLocalStorage(nextSettings, true);
     sipRealtime.broadcastConfigSync(nextSettings);
 
-    // 2. Asynchrones Persistieren in PocketBase (mit keepalive: true gegen Reload-Abbruch)
     try {
       await syncConfigToPocketBase(nextSettings);
     } catch (err) {
@@ -473,7 +484,7 @@ export const App: React.FC = () => {
     lastConfigMutationAtRef.current = Date.now();
 
     const currentNormSet = new Set(
-      settingsRef.current.memberAccounts.map((a) => normalizeUsernameForComparison(a.username))
+      settingsRef.current.memberAccounts.map((a) => normalizeUsernameForComparison(a.username)),
     );
     newSettings.memberAccounts.forEach((acc) => {
       const norm = normalizeUsernameForComparison(acc.username);
@@ -484,7 +495,7 @@ export const App: React.FC = () => {
 
     const updatedAt = nextConfigTimestamp(settingsRef.current.updatedAt);
     const sanitizedAccounts = newSettings.memberAccounts.filter(
-      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username))
+      (acc) => !deletedUsernamesRef.current.has(normalizeUsernameForComparison(acc.username)),
     );
 
     const nextSettings: AppSettings = {
@@ -505,7 +516,10 @@ export const App: React.FC = () => {
     try {
       await syncConfigToPocketBase(nextSettings);
     } catch (err) {
-      console.error('[SiP Settings Sync] Fehler beim Speichern der Einstellungen in der Datenbank:', err);
+      console.error(
+        '[SiP Settings Sync] Fehler beim Speichern der Einstellungen in der Datenbank:',
+        err,
+      );
       throw err;
     }
   }
@@ -514,7 +528,7 @@ export const App: React.FC = () => {
     const currentCodes = settings.totpBackupCodes || [];
     const normalizedUsed = usedCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const nextCodes = currentCodes.filter(
-      (c) => c.replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== normalizedUsed
+      (c) => c.replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== normalizedUsed,
     );
     const newSettings: AppSettings = {
       ...settings,
@@ -540,13 +554,18 @@ export const App: React.FC = () => {
     localStorage.removeItem(STORAGE_KEYS.LOGGED_USER);
     localStorage.removeItem(STORAGE_KEYS.ADMIN_UNLOCKED);
   }
+  const canAccessAdminDashboard =
+    currentUser?.role === 'admin' ||
+    (!!currentUser &&
+      (settings.adminDashboardUsernames ?? []).some(
+        (username) =>
+          normalizeUsernameForComparison(username) ===
+          normalizeUsernameForComparison(currentUser.username),
+      ));
 
   function handleAdminButtonClick() {
-    if (isAdminUnlocked) {
-      setCurrentView(currentView === 'admin' ? 'parliament' : 'admin');
-    } else {
-      setShowAdminUnlockModal(true);
-    }
+    if (!canAccessAdminDashboard) return;
+    setCurrentView(currentView === 'admin' ? 'parliament' : 'admin');
   }
 
   // 1. Vorgeschaltetes Login-Fenster wenn nicht angemeldet
@@ -586,24 +605,25 @@ export const App: React.FC = () => {
               <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-sky-400 block leading-tight">
                 Schüler:innenparlament
               </span>
-          
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             {/* View Switch: Parlament vs. Admin-Bereich */}
-            <button
-              type="button"
-              onClick={handleAdminButtonClick}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition cursor-pointer border ${
-                currentView === 'admin'
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
-                  : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{currentView === 'admin' ? 'Zum Plenum' : 'Admin & Konten'}</span>
-            </button>
+            {canAccessAdminDashboard && (
+              <button
+                type="button"
+                onClick={handleAdminButtonClick}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition cursor-pointer border ${
+                  currentView === 'admin'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
+                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{currentView === 'admin' ? 'Zum Plenum' : 'Admin & Konten'}</span>
+              </button>
+            )}
 
             {/* User badge */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-200">
@@ -643,7 +663,7 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 py-4">
-        {currentView === 'admin' ? (
+        {currentView === 'admin' && canAccessAdminDashboard ? (
           <SipAdminView
             settings={settings}
             onUpdateSettings={handleSaveSettings}
@@ -662,7 +682,10 @@ export const App: React.FC = () => {
 
       {/* Footer */}
       <footer className="py-4 text-center text-xs text-slate-500 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-3">
-        <span>Schüler:innenparlament (SiP) • Angemeldet als <strong>{currentUser.name}</strong> ({currentUser.username})</span>
+        <span>
+          Schüler:innenparlament (SiP) • Angemeldet als <strong>{currentUser.name}</strong> (
+          {currentUser.username})
+        </span>
         <span className="hidden sm:inline text-slate-700">•</span>
         <span className="text-slate-400 font-semibold">© Elias Mathis</span>
       </footer>

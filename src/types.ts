@@ -33,6 +33,7 @@ export interface AppSettings {
   deletedUsernames?: string[];
   updatedAt?: string;
   pocketbaseUrl?: string;
+  adminDashboardUsernames?: string[];
 }
 
 export const DEFAULT_ALLOWED_MEMBERS: string[] = [
@@ -111,7 +112,12 @@ export function buildMemberUsername(fullName: string): string {
 
   const words = cleaned
     .split(/\s+/)
-    .map((w) => w.replace(/[^a-z0-9-]+/g, '').replace(/-+/g, '-').replace(/^-|-$/g, ''))
+    .map((w) =>
+      w
+        .replace(/[^a-z0-9-]+/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, ''),
+    )
     .filter(Boolean);
 
   if (words.length === 0) return 'mitglied@schuelerunion.at';
@@ -158,6 +164,7 @@ export const DEFAULT_SIP_SETTINGS: AppSettings = {
   totpEnabled: false,
   totpBackupCodes: [],
   allowedMembers: DEFAULT_ALLOWED_MEMBERS,
+  adminDashboardUsernames: [],
   memberAccounts: DEFAULT_ALLOWED_MEMBERS.map((name) => ({
     name,
     username: buildMemberUsername(name),
@@ -171,22 +178,14 @@ export const DEFAULT_SIP_SETTINGS: AppSettings = {
 
 export type SipRoleKey = 'admin' | 'strategie' | 'mitglied' | 'gast';
 
-export type SipSubTab =
-  | 'antraege'
-  | 'past_antraege'
-  | 'drive'
-  | 'memes'
-  | 'archive';
+export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive';
 
 export type SipTabPermission = {
   visible: boolean;
   editable: boolean;
 };
 
-export type SipRoleTabAccess = Record<
-  SipRoleKey,
-  Record<SipSubTab, SipTabPermission>
->;
+export type SipRoleTabAccess = Record<SipRoleKey, Record<SipSubTab, SipTabPermission>>;
 
 export const defaultRoleTabAccess: SipRoleTabAccess = {
   admin: {

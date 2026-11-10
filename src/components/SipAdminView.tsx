@@ -17,7 +17,6 @@ import {
   Mail,
   Lock,
   Star,
-  
   StarOff,
   Send,
   AlertCircle,
@@ -50,11 +49,10 @@ import {
 } from '../utils/totp';
 import { comparePeopleByLastName } from '../sip/utils/sortPeople';
 
-
 interface SipAdminViewProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: AppSettings) => Promise<void> | void;
-  onDeleteUser?: (username: string) => Promise<void>;
+  onDeleteUser?: (username: string, updatedSettings: AppSettings) => Promise<void>;
   onClose: () => void;
   initial2FAVerified?: boolean;
 }
@@ -66,11 +64,13 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   onClose,
   initial2FAVerified,
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'settings'>(
-    initial2FAVerified ? 'settings' : 'users'
+  const [activeTab, setActiveTab] = useState<'users' | 'settings' | 'permissions'>(
+    initial2FAVerified ? 'settings' : 'users',
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'STRATEGIE' | 'MEMBER' | 'INTERNAL' | 'EXTERNAL' | 'EXPIRED'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<
+    'ALL' | 'STRATEGIE' | 'MEMBER' | 'INTERNAL' | 'EXTERNAL' | 'EXPIRED'
+  >('ALL');
 
   // Modal für neuen Zugang
   const [showAddModal, setShowAddModal] = useState(false);
@@ -80,7 +80,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState(generateRandomMemberPassword());
   const [newRole, setNewRole] = useState<'gast' | 'mitglied' | 'strategie'>('gast');
-  const [expirationPreset, setExpirationPreset] = useState<'never' | '2h' | '6h' | '12h' | '24h' | '48h' | 'custom'>('12h');
+  const [expirationPreset, setExpirationPreset] = useState<
+    'never' | '2h' | '6h' | '12h' | '24h' | '48h' | 'custom'
+  >('12h');
   const [customExpiresAt, setCustomExpiresAt] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingPasswordUser, setEditingPasswordUser] = useState<string | null>(null);
@@ -106,7 +108,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
   // 2FA Protected Area State
   const [twoFactorStage, setTwoFactorStage] = useState<'idle' | 'code_sent' | 'verified'>(
-    initial2FAVerified ? 'verified' : 'idle'
+    initial2FAVerified ? 'verified' : 'idle',
   );
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [twoFactorCodeInput, setTwoFactorCodeInput] = useState('');
@@ -129,7 +131,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       setActiveTab('settings');
       setTwoFactorStage('verified');
       setTwoFactorNewEmail(settings.adminEmail || '');
-      showBanner('2FA erfolgreich bestätigt! Du kannst die Passwörter und die 2FA-E-Mail jetzt ändern.');
+      showBanner(
+        '2FA erfolgreich bestätigt! Du kannst die Passwörter und die 2FA-E-Mail jetzt ändern.',
+      );
     }
   }, [initial2FAVerified, settings.adminEmail]);
 
@@ -184,7 +188,12 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   }
 
   function handleGenerateNewBackupCodes() {
-    if (!confirm('Möchtest du 10 neue Notfallcodes generieren? Alle bisherigen Notfallcodes werden damit sofort ungültig.')) return;
+    if (
+      !confirm(
+        'Möchtest du 10 neue Notfallcodes generieren? Alle bisherigen Notfallcodes werden damit sofort ungültig.',
+      )
+    )
+      return;
     const fresh = generateBackupCodes(10);
     onUpdateSettings({
       ...settings,
@@ -231,32 +240,39 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   }
 
   function handleResetTotpSecret() {
-    if (!confirm('Möchtest du wirklich einen neuen 2FA-Schlüssel generieren? Alle bisherigen Handys müssen den neuen QR-Code erneut scannen.')) return;
+    if (
+      !confirm(
+        'Möchtest du wirklich einen neuen 2FA-Schlüssel generieren? Alle bisherigen Handys müssen den neuen QR-Code erneut scannen.',
+      )
+    )
+      return;
     const newSec = generateTotpSecret();
     prepareTotpQr(newSec);
   }
 
   // Filtered accounts
   const filteredAccounts = useMemo(() => {
-    return settings.memberAccounts.filter((acc) => {
-      const isExp = isAccountExpired(acc);
+    return settings.memberAccounts
+      .filter((acc) => {
+        const isExp = isAccountExpired(acc);
 
-      if (roleFilter === 'STRATEGIE' && acc.role !== 'strategie') return false;
-      if (roleFilter === 'MEMBER' && (acc.isExternal || acc.role === 'strategie')) return false;
-      if (roleFilter === 'INTERNAL' && acc.role !== 'mitglied') return false; 
-      if (roleFilter === 'EXTERNAL' && !acc.isExternal) return false;
-      if (roleFilter === 'EXPIRED' && !isExp) return false;
+        if (roleFilter === 'STRATEGIE' && acc.role !== 'strategie') return false;
+        if (roleFilter === 'MEMBER' && (acc.isExternal || acc.role === 'strategie')) return false;
+        if (roleFilter === 'INTERNAL' && acc.role !== 'mitglied') return false;
+        if (roleFilter === 'EXTERNAL' && !acc.isExternal) return false;
+        if (roleFilter === 'EXPIRED' && !isExp) return false;
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          acc.name.toLowerCase().includes(q) ||
-          acc.username.toLowerCase().includes(q) ||
-          (acc.notes || '').toLowerCase().includes(q)
-        );
-      }
-      return true;
-    }).sort((a, b) => comparePeopleByLastName(a.name, b.name));
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          return (
+            acc.name.toLowerCase().includes(q) ||
+            acc.username.toLowerCase().includes(q) ||
+            (acc.notes || '').toLowerCase().includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => comparePeopleByLastName(a.name, b.name));
   }, [settings.memberAccounts, roleFilter, searchQuery]);
 
   function calculateExpiresAt(preset: string, customDate: string): string | null {
@@ -282,8 +298,13 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     let cleanUser = newUsername.trim();
     if (!cleanUser) {
       cleanUser =
-        cleanName.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '.') +
-        (newRole === 'gast' ? '@gast.sip' : '@schuelerunion.at');
+        cleanName
+          .toLowerCase()
+          .replace(/ä/g, 'ae')
+          .replace(/ö/g, 'oe')
+          .replace(/ü/g, 'ue')
+          .replace(/ß/g, 'ss')
+          .replace(/[^a-z0-9]+/g, '.') + (newRole === 'gast' ? '@gast.sip' : '@schuelerunion.at');
     }
 
     const expiresAt = calculateExpiresAt(expirationPreset, customExpiresAt);
@@ -334,7 +355,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     showBanner(
       nextRole === 'strategie'
         ? `„${target.name}“ wurde zur Strategieführung ernannt! (Führungsfunktionen beim Login aktiv)`
-        : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`
+        : `Strategieführungs-Rolle für „${target.name}“ aufgehoben.`,
     );
 
     try {
@@ -347,18 +368,25 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
   async function handleDeleteUser(username: string) {
     if (!confirm('Diesen Benutzerzugang wirklich unwiderruflich löschen?')) return;
+
     setDeletingUsername(username);
-    showBanner('Benutzerzugang gelöscht.');
+
+    const updatedSettings: AppSettings = {
+      ...settings,
+      memberAccounts: settings.memberAccounts.filter((account) => account.username !== username),
+      adminDashboardUsernames: (settings.adminDashboardUsernames ?? []).filter(
+        (name) => name !== username,
+      ),
+    };
+
     try {
       if (onDeleteUser) {
-        await onDeleteUser(username);
+        await onDeleteUser(username, updatedSettings);
       } else {
-        const updated = settings.memberAccounts.filter((a) => a.username !== username);
-        await onUpdateSettings({
-          ...settings,
-          memberAccounts: updated,
-        });
+        await onUpdateSettings(updatedSettings);
       }
+
+      showBanner('Benutzerzugang gelöscht.');
     } catch (err) {
       console.error('Fehler beim Löschen des Benutzerzugangs:', err);
       showBanner('Fehler beim Löschen des Zugangs in der Datenbank.');
@@ -372,9 +400,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       if (acc.username !== username) return acc;
 
       const baseTime =
-        acc.expiresAt && !isAccountExpired(acc)
-          ? new Date(acc.expiresAt).getTime()
-          : Date.now();
+        acc.expiresAt && !isAccountExpired(acc) ? new Date(acc.expiresAt).getTime() : Date.now();
       const newExp = new Date(baseTime + additionalHours * 3600 * 1000).toISOString();
 
       return { ...acc, expiresAt: newExp };
@@ -392,19 +418,17 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   function toDateTimeLocal(value: string | null | undefined): string {
     if (!value) return '';
     const date = new Date(value);
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-      .toISOString()
-      .slice(0, 16);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   }
 
   async function handleSetAllGuestExpiration(value: string | null) {
     const guestAccounts = settings.memberAccounts.filter(
-      (acc) => acc.isExternal || acc.role === 'gast'
+      (acc) => acc.isExternal || acc.role === 'gast',
     );
 
     const expiresAt = value ? new Date(value).toISOString() : null;
     const updatedAccounts = settings.memberAccounts.map((acc) =>
-      acc.isExternal || acc.role === 'gast' ? { ...acc, expiresAt } : acc
+      acc.isExternal || acc.role === 'gast' ? { ...acc, expiresAt } : acc,
     );
 
     try {
@@ -412,7 +436,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       setShowBulkGuestExpirationModal(false);
       setBulkGuestExpirationValue('');
       showBanner(
-        `Ablaufzeit für ${guestAccounts.length} Gäste aktualisiert${value ? '.' : ' – Zugang unbegrenzt.'}`
+        `Ablaufzeit für ${guestAccounts.length} Gäste aktualisiert${value ? '.' : ' – Zugang unbegrenzt.'}`,
       );
     } catch (err) {
       console.error('Fehler beim Aktualisieren der Gäste-Ablaufzeiten:', err);
@@ -424,7 +448,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     const updated = settings.memberAccounts.map((acc) =>
       acc.username === username
         ? { ...acc, expiresAt: value ? new Date(value).toISOString() : null }
-        : acc
+        : acc,
     );
 
     try {
@@ -443,7 +467,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
     const target = settings.memberAccounts.find((a) => a.username === username);
     const updated = settings.memberAccounts.map((acc) =>
-      acc.username === username ? { ...acc, password: cleanPass } : acc
+      acc.username === username ? { ...acc, password: cleanPass } : acc,
     );
 
     setEditingPasswordUser(null);
@@ -511,7 +535,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       setTwoFactorNewAdminPassword('');
       setTwoFactorNewStrategiePassword('');
       if (res.rateLimited) {
-        showBanner('Eingabefeld geöffnet! (Pocketbase E-Mail-Limit erreicht - verwende den empfangenen Link oder Backup-Code).');
+        showBanner(
+          'Eingabefeld geöffnet! (Pocketbase E-Mail-Limit erreicht - verwende den empfangenen Link oder Backup-Code).',
+        );
       } else {
         showBanner(`2FA-Bestätigungs-E-Mail wurde an ${settings.adminEmail} gesendet!`);
       }
@@ -535,7 +561,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
         setTwoFactorCodeInput('');
         setTwoFactorError(null);
         setTwoFactorNewEmail(settings.adminEmail);
-        showBanner('2FA erfolgreich bestätigt! Du kannst die Passwörter und die 2FA-E-Mail jetzt ändern.');
+        showBanner(
+          '2FA erfolgreich bestätigt! Du kannst die Passwörter und die 2FA-E-Mail jetzt ändern.',
+        );
       } else {
         setTwoFactorError('ungültiges Passwort, bitte versuche es erneut!');
       }
@@ -552,7 +580,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
     const nextEmail = twoFactorNewEmail.trim() || settings.adminEmail || '';
     const nextAdminPassword = twoFactorNewAdminPassword.trim() || settings.adminPassword;
-    const nextStrategiePassword = twoFactorNewStrategiePassword.trim() || settings.strategiePassword;
+    const nextStrategiePassword =
+      twoFactorNewStrategiePassword.trim() || settings.strategiePassword;
 
     if (nextAdminPassword === 'admin') {
       setTwoFactorError('ungültiges Passwort, bitte versuche es erneut!');
@@ -571,22 +600,47 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     setTwoFactorNewAdminPassword('');
     setTwoFactorNewStrategiePassword('');
     setTwoFactorError(null);
-    showBanner('Admin-Passwort, Strategieführungs-Passwort und 2FA-E-Mail wurden sicher aktualisiert!');
+    showBanner(
+      'Admin-Passwort, Strategieführungs-Passwort und 2FA-E-Mail wurden sicher aktualisiert!',
+    );
   }
-  const roleKeys: SipRoleKey[] = ['admin', 'strategie', 'mitglied', 'gast'];
-  const tabKeys: SipSubTab[] = [
-    'antraege',
-    'past_antraege',
-    'drive',
-    'memes',
-    'archive',
-  ];
+  const roleKeys: SipRoleKey[] = ['strategie', 'mitglied', 'gast'];
+  const adminDashboardUsernames = [...new Set(settings.adminDashboardUsernames ?? [])].slice(0, 3);
+
+  async function handleToggleAdminDashboardAccess(username: string, enabled: boolean) {
+    let nextUsernames = adminDashboardUsernames;
+
+    if (enabled) {
+      if (nextUsernames.includes(username)) return;
+
+      if (nextUsernames.length >= 3) {
+        showBanner('Der Admin-Button kann höchstens drei weiteren Konten freigeschaltet werden.');
+        return;
+      }
+
+      nextUsernames = [...nextUsernames, username];
+    } else {
+      nextUsernames = nextUsernames.filter((name) => name !== username);
+    }
+
+    try {
+      await onUpdateSettings({
+        ...settings,
+        adminDashboardUsernames: nextUsernames,
+      });
+      showBanner(enabled ? 'Admin-Dashboard freigeschaltet.' : 'Freischaltung entfernt.');
+    } catch (error) {
+      console.error('Fehler beim Ändern der Admin-Dashboard-Freischaltung:', error);
+      showBanner('Die Freischaltung konnte nicht gespeichert werden.');
+    }
+  }
+  const tabKeys: SipSubTab[] = ['antraege', 'past_antraege', 'drive', 'memes', 'archive'];
 
   function handleTabPermissionChange(
     role: SipRoleKey,
     tab: SipSubTab,
     field: 'visible' | 'editable',
-    value: boolean
+    value: boolean,
   ) {
     const currentAccess = settings.roleTabAccess ?? defaultRoleTabAccess;
 
@@ -608,7 +662,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     });
   }
 
-// ...existing code...
+  // ...existing code...
 
   return (
     <>
@@ -636,35 +690,34 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black">
-              SiP Administration & Strategie
-            </h1>
+            <h1 className="text-xl sm:text-2xl font-black">SiP Administration & Strategie</h1>
             <p className="text-xs text-slate-400">
-              Verwalte Zugangsdaten, erhebe Mitglieder zur Strategieführung und sichere Passwörter mit 2FA
+              Verwalte Zugangsdaten, erhebe Mitglieder zur Strategieführung und sichere Passwörter
+              mit 2FA
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setShowBulkGuestExpirationModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm"
-          >
-            <Clock className="w-4 h-4" />
-            <span>Ablaufzeit aller Gäste</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowBulkGuestExpirationModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm"
+            >
+              <Clock className="w-4 h-4" />
+              <span>Ablaufzeit aller Gäste</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Neuen Zugang anlegen</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-sky-500/20 cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Neuen Zugang anlegen</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -695,6 +748,19 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
           <Settings className="w-4 h-4" />
           <span>Passwörter, 2FA & Cloud</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('permissions')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+            activeTab === 'permissions'
+              ? 'bg-sky-500 text-slate-950 shadow-md'
+              : 'text-slate-400 hover:bg-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Berechtigungen</span>
+        </button>
       </div>
 
       {/* Tab 1: Users & Strategy Team */}
@@ -718,7 +784,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 type="button"
                 onClick={() => setRoleFilter('ALL')}
                 className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer ${
-                  roleFilter === 'ALL' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800'
+                  roleFilter === 'ALL'
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 Alle ({settings.memberAccounts.length})
@@ -728,28 +796,38 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 type="button"
                 onClick={() => setRoleFilter('STRATEGIE')}
                 className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer flex items-center gap-1 ${
-                  roleFilter === 'STRATEGIE' ? 'bg-amber-500 text-slate-950' : 'text-amber-300 hover:bg-slate-800'
+                  roleFilter === 'STRATEGIE'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-amber-300 hover:bg-slate-800'
                 }`}
               >
                 <Star className="w-3 h-3 fill-current" />
-                <span>Strategieführung ({settings.memberAccounts.filter((a) => a.role === 'strategie').length})</span>
+                <span>
+                  Strategieführung (
+                  {settings.memberAccounts.filter((a) => a.role === 'strategie').length})
+                </span>
               </button>
 
-                 <button
+              <button
                 type="button"
                 onClick={() => setRoleFilter('INTERNAL')}
                 className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer ${
-                  roleFilter === 'INTERNAL' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800'
+                  roleFilter === 'INTERNAL'
+                    ? 'bg-sky-500 text-slate-950'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                Reguläre Mitglieder ({settings.memberAccounts.filter((a) => a.role === 'mitglied').length})
+                Reguläre Mitglieder (
+                {settings.memberAccounts.filter((a) => a.role === 'mitglied').length})
               </button>
 
               <button
                 type="button"
                 onClick={() => setRoleFilter('EXTERNAL')}
                 className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer ${
-                  roleFilter === 'EXTERNAL' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800'
+                  roleFilter === 'EXTERNAL'
+                    ? 'bg-sky-500 text-slate-950'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 Externe Gäste ({settings.memberAccounts.filter((a) => a.isExternal).length})
@@ -759,7 +837,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 type="button"
                 onClick={() => setRoleFilter('EXPIRED')}
                 className={`px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer ${
-                  roleFilter === 'EXPIRED' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:bg-slate-800'
+                  roleFilter === 'EXPIRED'
+                    ? 'bg-rose-500 text-white'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 Abgelaufen ({settings.memberAccounts.filter((a) => isAccountExpired(a)).length})
@@ -780,10 +860,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     isExpired
                       ? 'bg-rose-950/10 border-rose-500/30'
                       : isLeader
-                      ? 'bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5'
-                      : acc.isExternal
-                      ? 'bg-sky-950/15 border-sky-500/30'
-                      : 'bg-slate-900 border-slate-800'
+                        ? 'bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5'
+                        : acc.isExternal
+                          ? 'bg-sky-950/15 border-sky-500/30'
+                          : 'bg-slate-900 border-slate-800'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -802,9 +882,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-slate-400 font-mono block">
-                        {acc.username}
-                      </span>
+                      <span className="text-xs text-slate-400 font-mono block">{acc.username}</span>
                     </div>
 
                     <button
@@ -894,7 +972,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                         <span>
                           {isExpired
                             ? 'Abgelaufen'
-                            : `Bis ${new Date(acc.expiresAt).toLocaleDateString('de-AT')} · ${new Date(acc.expiresAt).toLocaleTimeString('de-AT', {
+                            : `Bis ${new Date(acc.expiresAt).toLocaleDateString('de-AT')} · ${new Date(
+                                acc.expiresAt,
+                              ).toLocaleTimeString('de-AT', {
                                 hour: '2-digit',
                                 minute: '2-digit',
                               })} Uhr`}
@@ -916,7 +996,11 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                           ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
                           : 'bg-slate-800 hover:bg-amber-500/10 text-slate-400 hover:text-amber-300 border-slate-700 hover:border-amber-500/30'
                       }`}
-                      title={isLeader ? 'Strategieführungs-Rechte aufheben' : 'Zur Strategieführung ernennen'}
+                      title={
+                        isLeader
+                          ? 'Strategieführungs-Rechte aufheben'
+                          : 'Zur Strategieführung ernennen'
+                      }
                     >
                       {isLeader ? (
                         <>
@@ -953,15 +1037,15 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                           </button>
 
                           <button
-                        type="button"
-                        onClick={() => {
-                          setEditingExpirationUser(acc.username);
-                          setEditingExpirationValue(toDateTimeLocal(acc.expiresAt));
-                        }}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
-                      >
-                        mehr...
-                      </button>
+                            type="button"
+                            onClick={() => {
+                              setEditingExpirationUser(acc.username);
+                              setEditingExpirationValue(toDateTimeLocal(acc.expiresAt));
+                            }}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                          >
+                            mehr...
+                          </button>
                         </>
                       )}
 
@@ -979,7 +1063,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                         )}
                       </button>
                     </div>
-                     {editingExpirationUser === acc.username && (
+                    {editingExpirationUser === acc.username && (
                       <div className="w-full flex flex-wrap items-center gap-2">
                         <input
                           type="datetime-local"
@@ -1057,7 +1141,11 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             {/* TOTP Erklärung & Nutzen */}
             <p className="text-xs text-slate-300 leading-relaxed">
               Generiert alle 30 Sekunden einen neuen 6-stelligen Code auf deinem Smartphone.
-              <strong> Der QR-Code kann von beliebig vielen Personen / Handys gleichzeitig gescannt werden</strong> und funktioniert auch komplett offline ohne E-Mail.
+              <strong>
+                {' '}
+                Der QR-Code kann von beliebig vielen Personen / Handys gleichzeitig gescannt werden
+              </strong>{' '}
+              und funktioniert auch komplett offline ohne E-Mail.
             </p>
 
             {/* Zustand A: TOTP noch nicht aktiviert */}
@@ -1113,7 +1201,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3"
                   >
                     <label className="block text-xs font-semibold text-slate-300">
-                      Passwörter ändern: Gib den aktuellen 6-stelligen Code aus deiner Authenticator-App ein
+                      Passwörter ändern: Gib den aktuellen 6-stelligen Code aus deiner
+                      Authenticator-App ein
                     </label>
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input
@@ -1146,7 +1235,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             >
               <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>2FA erfolgreich bestätigt! Du kannst jetzt das Administrator- und Strategieführungs-Passwort ändern:</span>
+                <span>
+                  2FA erfolgreich bestätigt! Du kannst jetzt das Administrator- und
+                  Strategieführungs-Passwort ändern:
+                </span>
               </div>
 
               <div>
@@ -1225,7 +1317,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Ermöglicht den Admin-Login, falls du keinen Zugriff auf deine Authenticator-App hast
+                    Ermöglicht den Admin-Login, falls du keinen Zugriff auf deine Authenticator-App
+                    hast
                   </p>
                 </div>
               </div>
@@ -1251,7 +1344,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-              Jeder Notfallcode ist ein 8-stelliger Sicherheitsschlüssel (Format: <strong className="font-mono text-amber-300">XXXX-XXXX</strong>), der genau <strong>einmalig</strong> für den Administrator-Login verwendet werden kann. Nach der Einlösung wird der Code automatisch entwertet.
+              Jeder Notfallcode ist ein 8-stelliger Sicherheitsschlüssel (Format:{' '}
+              <strong className="font-mono text-amber-300">XXXX-XXXX</strong>), der genau{' '}
+              <strong>einmalig</strong> für den Administrator-Login verwendet werden kann. Nach der
+              Einlösung wird der Code automatisch entwertet.
             </p>
           </div>
 
@@ -1262,7 +1358,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 <Database className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-base mb-0.5">PocketBase Echtzeit-Cloud & Synchronisation</h3>
+                <h3 className="font-bold text-base mb-0.5">
+                  PocketBase Echtzeit-Cloud & Synchronisation
+                </h3>
                 <p className="text-xs text-slate-400">
                   Alle Benutzer, Konten und Anträge werden live über PocketBase synchronisiert.
                 </p>
@@ -1287,77 +1385,120 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                   Collection & Datenstruktur
                 </label>
                 <p className="text-slate-300 text-xs leading-relaxed">
-                  Collection <code className="text-emerald-300">sip_state</code> mit Standard-Spalten <code className="text-sky-300">id</code>, <code className="text-sky-300">created</code>, <code className="text-sky-300">updated</code> und Nutzdaten in <code className="text-amber-300">payload</code> (JSON).
+                  Collection <code className="text-emerald-300">sip_state</code> mit
+                  Standard-Spalten <code className="text-sky-300">id</code>,{' '}
+                  <code className="text-sky-300">created</code>,{' '}
+                  <code className="text-sky-300">updated</code> und Nutzdaten in{' '}
+                  <code className="text-amber-300">payload</code> (JSON).
                 </p>
               </div>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Rollenbasierte Tab-Berechtigungen */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl text-white space-y-4">
-            <h2 className="text-lg font-bold mb-4">Rollenbasierte Tab-Berechtigungen</h2>
+      {/* Tab 3: Rollenbasierte Tab-Berechtigungen */}
+      {activeTab === 'permissions' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl text-white space-y-4">
+          <h2 className="text-lg font-bold">Rollenbasierte Tab-Berechtigungen</h2>
 
-            <div className="space-y-4">
-              {roleKeys.map((role) => (
-                <div key={role} className="rounded-2xl border border-slate-700 p-4">
-                  <h3 className="mb-3 text-sm font-bold uppercase text-slate-300">
-                    {role}
-                  </h3>
+          <div className="space-y-4">
+            {roleKeys.map((role) => (
+              <div key={role} className="rounded-2xl border border-slate-700 p-4">
+                <h3 className="mb-3 text-sm font-bold uppercase text-slate-300">{role}</h3>
 
-                  <div className="grid gap-2">
-                    {tabKeys.map((tab) => {
-                      const access =
-                        settings.roleTabAccess?.[role]?.[tab] ??
-                        defaultRoleTabAccess[role][tab];
+                <div className="grid gap-2">
+                  {tabKeys.map((tab) => {
+                    const access =
+                      settings.roleTabAccess?.[role]?.[tab] ?? defaultRoleTabAccess[role][tab];
 
-                      return (
-                        <div
-                          key={`${role}-${tab}`}
-                          className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950 p-2"
-                        >
-                          <span className="text-xs font-semibold text-slate-300">{tab}</span>
+                    return (
+                      <div
+                        key={`${role}-${tab}`}
+                        className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950 p-2"
+                      >
+                        <span className="text-xs font-semibold text-slate-300">{tab}</span>
 
-                          <div className="flex items-center gap-3">
-                            <label className="flex items-center gap-1 text-xs text-slate-300">
-                              <input
-                                type="checkbox"
-                                checked={access.visible}
-                                onChange={(e) =>
-                                  handleTabPermissionChange(
-                                    role,
-                                    tab,
-                                    'visible',
-                                    e.target.checked
-                                  )
-                                }
-                              />
-                              sichtbar
-                            </label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1 text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={access.visible}
+                              onChange={(e) =>
+                                handleTabPermissionChange(role, tab, 'visible', e.target.checked)
+                              }
+                            />
+                            sichtbar
+                          </label>
 
-                            <label className="flex items-center gap-1 text-xs text-slate-300">
-                              <input
-                                type="checkbox"
-                                checked={access.editable}
-                                onChange={(e) =>
-                                  handleTabPermissionChange(
-                                    role,
-                                    tab,
-                                    'editable',
-                                    e.target.checked
-                                  )
-                                }
-                              />
-                              bearbeitbar
-                            </label>
-                          </div>
+                          <label className="flex items-center gap-1 text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={access.editable}
+                              onChange={(e) =>
+                                handleTabPermissionChange(role, tab, 'editable', e.target.checked)
+                              }
+                            />
+                            bearbeitbar
+                          </label>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
+          <section className="space-y-3 border-t border-slate-700 pt-4">
+            <div>
+              <h2 className="text-lg font-bold">Admin-Button für Konten</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Der Administrator hat immer Zugriff. Hier kannst du bis zu drei weiteren Konten den
+                Admin-Button und den Zugriff auf das Dashboard freischalten.
+              </p>
+              <p className="mt-1 text-xs font-semibold text-sky-300">
+                Freigeschaltet: {adminDashboardUsernames.length} / 3
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              {[...settings.memberAccounts]
+                .sort((a, b) => comparePeopleByLastName(a.name, b.name))
+                .map((account) => {
+                  const isEnabled = adminDashboardUsernames.includes(account.username);
+
+                  return (
+                    <label
+                      key={account.username}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-white">
+                          {account.name}
+                        </span>
+                        <span className="block text-xs text-slate-400">
+                          {account.username} · {account.role}
+                        </span>
+                      </span>
+
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        disabled={!isEnabled && adminDashboardUsernames.length >= 3}
+                        onChange={(event) =>
+                          void handleToggleAdminDashboardAccess(
+                            account.username,
+                            event.target.checked,
+                          )
+                        }
+                        aria-label={`Admin-Dashboard für ${account.name} freischalten`}
+                        className="h-4 w-4 shrink-0 accent-sky-500 disabled:opacity-40"
+                      />
+                    </label>
+                  );
+                })}
+            </div>
+          </section>
         </div>
       )}
 
@@ -1371,7 +1512,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                   <Smartphone className="w-4 h-4" />
                 </div>
                 <h2 className="text-base font-black">
-                  {totpSetupStep === 'qr' ? 'Authenticator-App einrichten' : 'Deine 10 Notfallcodes sichern'}
+                  {totpSetupStep === 'qr'
+                    ? 'Authenticator-App einrichten'
+                    : 'Deine 10 Notfallcodes sichern'}
                 </h2>
               </div>
               <button
@@ -1387,10 +1530,12 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               <div className="space-y-4">
                 <div className="text-xs text-slate-300 space-y-2">
                   <p>
-                    <strong>1. App öffnen:</strong> Öffne Google Authenticator, Apple Passwörter oder Microsoft Authenticator auf deinem Smartphone.
+                    <strong>1. App öffnen:</strong> Öffne Google Authenticator, Apple Passwörter
+                    oder Microsoft Authenticator auf deinem Smartphone.
                   </p>
                   <p>
-                    <strong>2. QR-Code scannen:</strong> Scanne diesen Code mit der App ab (kann von mehreren Personen / Handys abgescannt werden):
+                    <strong>2. QR-Code scannen:</strong> Scanne diesen Code mit der App ab (kann von
+                    mehreren Personen / Handys abgescannt werden):
                   </p>
                 </div>
 
@@ -1398,11 +1543,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 <div className="flex justify-center py-2">
                   {totpQrDataUrl ? (
                     <div className="p-3 bg-white rounded-2xl shadow-xl border border-slate-700">
-                      <img
-                        src={totpQrDataUrl}
-                        alt="2FA QR Code"
-                        className="w-48 h-48 block"
-                      />
+                      <img src={totpQrDataUrl} alt="2FA QR Code" className="w-48 h-48 block" />
                     </div>
                   ) : (
                     <div className="w-48 h-48 flex items-center justify-center bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-500">
@@ -1443,7 +1584,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                 </div>
 
                 {/* Schritt 3: Aktivierungscode eingeben */}
-                <form onSubmit={handleConfirmTotpActivation} className="space-y-3 pt-2 border-t border-slate-800">
+                <form
+                  onSubmit={handleConfirmTotpActivation}
+                  className="space-y-3 pt-2 border-t border-slate-800"
+                >
                   <label className="block text-xs font-semibold text-slate-300">
                     3. Bestätigen: Gib den 6-stelligen Code aus deiner App ein
                   </label>
@@ -1483,13 +1627,18 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     <span>2FA fast fertig: Bitte sichere deine 10 Notfallcodes!</span>
                   </div>
                   <p className="text-slate-300 text-[11px]">
-                    Solltest du jemals keinen Zugriff auf dein Handy oder die Authenticator-App haben, kannst du dich mit jedem dieser 10 Codes genau einmal als Administrator anmelden.
+                    Solltest du jemals keinen Zugriff auf dein Handy oder die Authenticator-App
+                    haben, kannst du dich mit jedem dieser 10 Codes genau einmal als Administrator
+                    anmelden.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 p-3 bg-slate-950 rounded-2xl border border-slate-800 font-mono text-center text-xs font-bold text-amber-300">
                   {generatedBackupCodes.map((code, idx) => (
-                    <div key={code} className="p-2 rounded-xl bg-slate-900 border border-slate-800 select-all">
+                    <div
+                      key={code}
+                      className="p-2 rounded-xl bg-slate-900 border border-slate-800 select-all"
+                    >
                       <span className="text-[10px] text-slate-500 mr-1.5">{idx + 1}.</span>
                       <span>{code}</span>
                     </div>
@@ -1567,7 +1716,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               </button>
             </div>
 
-            {(!settings.totpBackupCodes || settings.totpBackupCodes.length === 0) ? (
+            {!settings.totpBackupCodes || settings.totpBackupCodes.length === 0 ? (
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs text-center space-y-2">
                 <p>Du hast aktuell keine aktiven Notfallcodes mehr.</p>
                 <button
@@ -1582,7 +1731,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2 p-3 bg-slate-950 rounded-2xl border border-slate-800 font-mono text-center text-xs font-bold text-amber-300 max-h-56 overflow-y-auto">
                   {settings.totpBackupCodes.map((code, idx) => (
-                    <div key={code} className="p-2 rounded-xl bg-slate-900 border border-slate-800 select-all">
+                    <div
+                      key={code}
+                      className="p-2 rounded-xl bg-slate-900 border border-slate-800 select-all"
+                    >
                       <span className="text-[10px] text-slate-500 mr-1.5">{idx + 1}.</span>
                       <span>{code}</span>
                     </div>
@@ -1614,7 +1766,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => downloadBackupCodesTxt(settings.totpBackupCodes || [], settings.clubName)}
+                    onClick={() =>
+                      downloadBackupCodesTxt(settings.totpBackupCodes || [], settings.clubName)
+                    }
                     className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -1636,12 +1790,14 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       )}
 
       {/* Modal: Neuen Zugang / Gast anlegen */}
-       {showBulkGuestExpirationModal && (
+      {showBulkGuestExpirationModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-md w-full text-white space-y-4">
             <h2 className="text-lg font-bold">Ablaufzeit aller Gäste ändern</h2>
             <p className="text-sm text-slate-400">
-              Das betrifft {settings.memberAccounts.filter((a) => a.isExternal || a.role === 'gast').length} externe Gästekonten.
+              Das betrifft{' '}
+              {settings.memberAccounts.filter((a) => a.isExternal || a.role === 'gast').length}{' '}
+              externe Gästekonten.
             </p>
 
             <input
@@ -1711,14 +1867,10 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">
-                  Rolle im SiP
-                </label>
+                <label className="block text-slate-300 font-semibold mb-1">Rolle im SiP</label>
                 <select
                   value={newRole}
-                  onChange={(e) =>
-                    setNewRole(e.target.value as 'gast' | 'mitglied' | 'strategie')
-                  }
+                  onChange={(e) => setNewRole(e.target.value as 'gast' | 'mitglied' | 'strategie')}
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
                   <option value="gast">Externer Gast (mit Ablaufzeit)</option>
@@ -1781,8 +1933,8 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                       {preset === 'never'
                         ? 'Unbegrenzt'
                         : preset === 'custom'
-                        ? 'Datum...'
-                        : `${preset.replace('h', ' Std.')}`}
+                          ? 'Datum...'
+                          : `${preset.replace('h', ' Std.')}`}
                     </button>
                   ))}
                 </div>
@@ -1816,6 +1968,6 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
           </div>
         </div>
       )}
-      </>
+    </>
   );
 };
