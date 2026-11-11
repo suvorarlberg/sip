@@ -1923,55 +1923,59 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                                   onReject={handleRejectAntrag}
                                 />
 
-                                {isStrategyView && antrag.type !== 'WM' && (
-                                  <div className="mt-2 flex items-center justify-end gap-2">
-                                    {!antrag.plenumResult ? (
-                                      <>
+                                {isStrategyView &&
+                                  antrag.status === 'approved' &&
+                                  antrag.type !== 'WM' && (
+                                    <div className="mt-2 flex items-center justify-end gap-2">
+                                      {!antrag.plenumResult ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDecideAntrag(antrag.id, 'ANGENOMMEN')
+                                            }
+                                            className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                          >
+                                            Angenommen
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDecideAntrag(antrag.id, 'ABGELEHNT')
+                                            }
+                                            className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
+                                          >
+                                            Abgelehnt
+                                          </button>
+                                        </>
+                                      ) : !antrag.plenumResultAt ? (
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            handleDecideAntrag(antrag.id, 'ANGENOMMEN')
-                                          }
-                                          className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                          onClick={() => {
+                                            setCloseConfirmationAntragId(antrag.id);
+                                            setShowCloseConfirmation(true);
+                                          }}
+                                          className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
                                         >
-                                          Angenommen
+                                          Schließen
                                         </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDecideAntrag(antrag.id, 'ABGELEHNT')}
-                                          className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
-                                        >
-                                          Abgelehnt
-                                        </button>
-                                      </>
-                                    ) : !antrag.plenumResultAt ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setCloseConfirmationAntragId(antrag.id);
-                                          setShowCloseConfirmation(true);
-                                        }}
-                                        className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
-                                      >
-                                        Schließen
-                                      </button>
-                                    ) : (
-                                      <span className="text-xs font-bold text-slate-300">
-                                        Schließt in{' '}
-                                        {Math.max(
-                                          0,
-                                          Math.ceil(
-                                            (DECISION_FADE_DURATION_MS -
-                                              (decisionNow -
-                                                new Date(antrag.plenumResultAt).getTime())) /
-                                              1000,
-                                          ),
-                                        )}
-                                        s…
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
+                                      ) : (
+                                        <span className="text-xs font-bold text-slate-300">
+                                          Schließt in{' '}
+                                          {Math.max(
+                                            0,
+                                            Math.ceil(
+                                              (DECISION_FADE_DURATION_MS -
+                                                (decisionNow -
+                                                  new Date(antrag.plenumResultAt).getTime())) /
+                                                1000,
+                                            ),
+                                          )}
+                                          s…
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                               </div>
                             ))}
                           </div>
@@ -2403,55 +2407,59 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                                   onReject={handleRejectAntrag}
                                 />
 
-                                {isStrategyView && antrag.type !== 'WM' && (
-                                  <div className="mt-2 flex items-center justify-end gap-2">
-                                    {!antrag.plenumResult ? (
-                                      <>
+                                {isStrategyView &&
+                                  antrag.status === 'approved' &&
+                                  antrag.type !== 'WM' && (
+                                    <div className="mt-2 flex items-center justify-end gap-2">
+                                      {!antrag.plenumResult ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDecideAntrag(antrag.id, 'ANGENOMMEN')
+                                            }
+                                            className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                          >
+                                            Angenommen
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDecideAntrag(antrag.id, 'ABGELEHNT')
+                                            }
+                                            className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
+                                          >
+                                            Abgelehnt
+                                          </button>
+                                        </>
+                                      ) : !antrag.plenumResultAt ? (
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            handleDecideAntrag(antrag.id, 'ANGENOMMEN')
-                                          }
-                                          className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                                          onClick={() => {
+                                            setCloseConfirmationAntragId(antrag.id);
+                                            setShowCloseConfirmation(true);
+                                          }}
+                                          className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
                                         >
-                                          Angenommen
+                                          Schließen
                                         </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDecideAntrag(antrag.id, 'ABGELEHNT')}
-                                          className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500"
-                                        >
-                                          Abgelehnt
-                                        </button>
-                                      </>
-                                    ) : !antrag.plenumResultAt ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setCloseConfirmationAntragId(antrag.id);
-                                          setShowCloseConfirmation(true);
-                                        }}
-                                        className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
-                                      >
-                                        Schließen
-                                      </button>
-                                    ) : (
-                                      <span className="text-xs font-bold text-slate-300">
-                                        Schließt in{' '}
-                                        {Math.max(
-                                          0,
-                                          Math.ceil(
-                                            (DECISION_FADE_DURATION_MS -
-                                              (decisionNow -
-                                                new Date(antrag.plenumResultAt).getTime())) /
-                                              1000,
-                                          ),
-                                        )}
-                                        s…
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
+                                      ) : (
+                                        <span className="text-xs font-bold text-slate-300">
+                                          Schließt in{' '}
+                                          {Math.max(
+                                            0,
+                                            Math.ceil(
+                                              (DECISION_FADE_DURATION_MS -
+                                                (decisionNow -
+                                                  new Date(antrag.plenumResultAt).getTime())) /
+                                                1000,
+                                            ),
+                                          )}
+                                          s…
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                               </div>
                             ))}
                           </div>
@@ -2460,12 +2468,12 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                     </div>
                   ) : (
                     /* Warteraum wenn noch kein Antrag aufgerufen ist */
-                    <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center text-slate-400">
-                      <div className="relative mb-5">
-                        <div className="w-16 h-16 rounded-3xl bg-sky-500/20 text-sky-400 border border-sky-500/40 flex items-center justify-center animate-pulse">
-                          <Radio className="w-8 h-8" />
+                    <div className="flex w-full flex-col items-center rounded-3xl border border-slate-800 bg-slate-900/60 p-6 text-center">
+                      <div className="relative mx-auto mb-5 h-16 w-16">
+                        <div className="flex h-full w-full items-center justify-center rounded-3xl border border-sky-500/40 bg-sky-500/20 text-sky-400 animate-pulse">
+                          <Radio className="h-8 w-8" />
                         </div>
-                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 animate-ping" />
+                        <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-emerald-400 animate-ping" />
                       </div>
 
                       <span className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-1">
