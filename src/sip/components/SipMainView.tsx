@@ -813,14 +813,21 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   }, [activeSubAntraege, subAntragTypeFilter]);
 
   // Live Counters für Header: Angenommene und Abgelehnte Anträge
-  const acceptedCount = useMemo(() => {
-    return session.antraege.filter((a) => a.plenumResult === 'ANGENOMMEN').length;
-  }, [session.antraege]);
+  const acceptedCount = useMemo(
+    () =>
+      session.antraege.filter(
+        (antrag) => antrag.type === 'HAUPTANTRAG' && antrag.plenumResult === 'ANGENOMMEN',
+      ).length,
+    [session.antraege],
+  );
 
-  const rejectedCount = useMemo(() => {
-    return session.antraege.filter((a) => a.plenumResult === 'ABGELEHNT').length;
-  }, [session.antraege]);
-
+  const rejectedCount = useMemo(
+    () =>
+      session.antraege.filter(
+        (antrag) => antrag.type === 'HAUPTANTRAG' && antrag.plenumResult === 'ABGELEHNT',
+      ).length,
+    [session.antraege],
+  );
   // Handlers
   async function handleActivateAntrag(antragId: string) {
     await sipRealtime.activateAntrag(antragId, settings);
