@@ -68,6 +68,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     initial2FAVerified ? 'settings' : 'users',
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [adminAccessQuery, setAdminAccessQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<
     'ALL' | 'STRATEGIE' | 'MEMBER' | 'INTERNAL' | 'EXTERNAL' | 'EXPIRED'
   >('ALL');
@@ -607,6 +608,21 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
   const roleKeys: SipRoleKey[] = ['strategie', 'mitglied', 'gast'];
   const adminDashboardUsernames = [...new Set(settings.adminDashboardUsernames ?? [])].slice(0, 3);
 
+  const adminDashboardSuggestions = useMemo(() => {
+    const query = adminAccessQuery.trim().toLocaleLowerCase('de');
+    if (!query) return [];
+
+    return settings.memberAccounts
+      .filter((account) => !adminDashboardUsernames.includes(account.username))
+      .filter(
+        (account) =>
+          account.name.toLocaleLowerCase('de').includes(query) ||
+          account.username.toLocaleLowerCase('de').includes(query),
+      )
+      .sort((a, b) => comparePeopleByLastName(a.name, b.name))
+      .slice(0, 8);
+  }, [settings.memberAccounts, adminDashboardUsernames, adminAccessQuery]);
+
   async function handleToggleAdminDashboardAccess(username: string, enabled: boolean) {
     let nextUsernames = adminDashboardUsernames;
 
@@ -620,6 +636,13 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
 
       nextUsernames = [...nextUsernames, username];
     } else {
+      const account = settings.memberAccounts.find((item) => item.username === username);
+      const displayName = account?.name ?? username;
+
+      if (!window.confirm(`Die Freischaltung für „${displayName}“ wirklich entfernen?`)) {
+        return;
+      }
+
       nextUsernames = nextUsernames.filter((name) => name !== username);
     }
 
@@ -1453,50 +1476,87 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
             <div>
               <h2 className="text-lg font-bold">Admin-Button für Konten</h2>
               <p className="mt-1 text-xs text-slate-400">
-                Der Administrator hat immer Zugriff. Hier kannst du bis zu drei weiteren Konten den
-                Admin-Button und den Zugriff auf das Dashboard freischalten.
+                Namen eingeben und ein Konto aus den Vorschlägen auswählen. Der Administrator hat
+                immer Zugriff; bis zu drei weitere Konten können freigeschaltet werden.
               </p>
               <p className="mt-1 text-xs font-semibold text-sky-300">
                 Freigeschaltet: {adminDashboardUsernames.length} / 3
               </p>
             </div>
 
-            <div className="grid gap-2">
-              {[...settings.memberAccounts]
-                .sort((a, b) => comparePeopleByLastName(a.name, b.name))
-                .map((account) => {
-                  const isEnabled = adminDashboardUsernames.includes(account.username);
+            <div className="relative">
+              <input
+                type="search"
+                value={adminAccessQuery}
+                onChange={(event) => setAdminAccessQuery(event.target.value)}
+                placeholder="Name oder Benutzername eingeben…"
+                autoComplete="off"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+              />
+
+              {adminAccessQuery.trim() && (
+                <div className="mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950">
+                  {adminDashboardSuggestions.length > 0 ? (
+                    adminDashboardSuggestions.map((account) => (
+                      <button
+                        key={account.username}
+                        type="button"
+                        disabled={adminDashboardUsernames.length >= 3}
+                        onClick={() => {
+                          void handleToggleAdminDashboardAccess(account.username, true);
+                          setAdminAccessQuery('');
+                        }}
+                        className="flex w-full items-center justify-between gap-3 border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span className="text-sm font-semibold text-white">{account.name}</span>
+                        <span className="text-xs text-slate-400">{account.username}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-slate-400">
+                      Keine passenden, noch nicht ausgewählten Konten gefunden.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              {adminDashboardUsernames.length === 0 ? (
+                <p className="text-xs text-slate-500">Noch keine weiteren Konten ausgewählt.</p>
+              ) : (
+                adminDashboardUsernames.map((username) => {
+                  const account = settings.memberAccounts.find(
+                    (item) => item.username === username,
+                  );
 
                   return (
-                    <label
-                      key={account.username}
+                    <div
+                      key={username}
                       className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"
                     >
-                      <span className="min-w-0">
+                      <span>
                         <span className="block text-sm font-semibold text-white">
-                          {account.name}
+                          {account?.name ?? username}
                         </span>
-                        <span className="block text-xs text-slate-400">
-                          {account.username} · {account.role}
-                        </span>
+                        {account && (
+                          <span className="block text-xs text-slate-400">
+                            {account.username} · {account.role}
+                          </span>
+                        )}
                       </span>
 
-                      <input
-                        type="checkbox"
-                        checked={isEnabled}
-                        disabled={!isEnabled && adminDashboardUsernames.length >= 3}
-                        onChange={(event) =>
-                          void handleToggleAdminDashboardAccess(
-                            account.username,
-                            event.target.checked,
-                          )
-                        }
-                        aria-label={`Admin-Dashboard für ${account.name} freischalten`}
-                        className="h-4 w-4 shrink-0 accent-sky-500 disabled:opacity-40"
-                      />
-                    </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleAdminDashboardAccess(username, false)}
+                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
+                      >
+                        Entfernen
+                      </button>
+                    </div>
                   );
-                })}
+                })
+              )}
             </div>
           </section>
         </div>
