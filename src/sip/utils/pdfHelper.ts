@@ -28,6 +28,8 @@ if (typeof window !== 'undefined') {
   }
 }
 
+export { pdfjsLib };
+
 export async function extractTextFromPdfArrayBuffer(buffer: ArrayBuffer): Promise<string> {
   // Sicherheits-Clone des Buffers, damit pdfjs-dist beim Transfer an den Web-Worker
   // keinesfalls den Originalbuffer im Hauptthread detached

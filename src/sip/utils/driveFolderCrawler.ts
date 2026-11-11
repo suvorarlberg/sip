@@ -23,6 +23,7 @@ export interface GoogleDriveFolderManifest {
   hauptantragFiles?: DriveFileInfo[];
   strategieFiles: DriveFileInfo[];
   updatedAt: string;
+  goFile?: DriveFileInfo | null;
 }
 
 export interface ParsedDriveEntry {
@@ -106,7 +107,9 @@ export function parseEmbeddedFolderViewResponse(rawContent: string): ParsedDrive
     if (!name) continue;
 
     const folderMatch = href.match(/\/folders\/([a-zA-Z0-9_\-]+)/i);
-    const fileMatch = href.match(/\/(?:file|document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_\-]+)/i);
+    const fileMatch = href.match(
+      /\/(?:file|document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_\-]+)/i,
+    );
     const id = folderMatch ? folderMatch[1] : fileMatch ? fileMatch[1] : '';
     if (!id || entriesMap.has(id)) continue;
 
@@ -193,7 +196,11 @@ function isStrategyDocCandidate(entry: ParsedDriveEntry): boolean {
   if (entry.isFolder || entry.isGoogleSheet) return false;
   const lower = entry.name.toLowerCase();
   if (lower.startsWith('~$') || lower.startsWith('.')) return false;
-  if (/legende|formatierung|wichtigste\s+sip\s+go|wie\s+schreibe\s+ich|how\s+to\s+sip|zeitplan/i.test(lower)) {
+  if (
+    /legende|formatierung|wichtigste\s+sip\s+go|wie\s+schreibe\s+ich|how\s+to\s+sip|zeitplan/i.test(
+      lower,
+    )
+  ) {
     return false;
   }
   if (entry.isGoogleDoc) return true;
@@ -216,12 +223,19 @@ function sortByLeadingNumber(files: DriveFileInfo[]): DriveFileInfo[] {
  * - Antragsmappe (.pdf)
  * - Unterordner "Strategie" (inkl. eventueller Unterordner wie "Anträge Strategie")
  */
+
 export async function crawlDriveFolderLive(
   folderId: string,
-  onProgress?: (text: string) => void
+  onProgress?: (text: string) => void,
 ): Promise<GoogleDriveFolderManifest | null> {
   onProgress?.('Durchsuche Google Drive Hauptordner...');
   const rootEntries = await fetchDriveFolderEntriesLive(folderId);
+
+  const goPdfEntry =
+    rootEntries.find(
+      (entry) => !entry.isFolder && entry.name.includes('GO') && /\.pdf$/i.test(entry.name),
+    ) ?? null;
+
   if (rootEntries.length === 0) {
     return null;
   }
@@ -229,19 +243,20 @@ export async function crawlDriveFolderLive(
   // 1. Suche nach der Antragsmappe (PDF) im Hauptordner
   // Bevorzuge PDFs mit "Antragsmappe" im Namen (egal ob mit .pdf-Endung oder ohne)
   const pdfEntries = rootEntries.filter(
-    (e) => !e.isFolder && (e.name.toLowerCase().endsWith('.pdf') || /antragsmappe/i.test(e.name))
+    (entry) =>
+      !entry.isFolder &&
+      entry !== goPdfEntry &&
+      (entry.name.toLowerCase().endsWith('.pdf') || /antragsmappe/i.test(entry.name)),
   );
 
   const primaryAntragsmappe =
     pdfEntries.find(
       (e) =>
         /antragsmappe/i.test(e.name) &&
-        !/vorab-kommentierung|bidi-kommentierung|how\s+to/i.test(e.name)
+        !/vorab-kommentierung|bidi-kommentierung|how\s+to/i.test(e.name),
     ) ||
     pdfEntries.find((e) => /antragsmappe/i.test(e.name)) ||
-    pdfEntries.find(
-      (e) => !/how\s+to|leitfaden|zeitplan|geschäftsordnung|bidi/i.test(e.name)
-    ) ||
+    pdfEntries.find((e) => !/how\s+to|leitfaden|zeitplan|geschäftsordnung|bidi/i.test(e.name)) ||
     pdfEntries[0] ||
     null;
 
@@ -252,9 +267,7 @@ export async function crawlDriveFolderLive(
   // Prüfe zusätzlich, ob Hauptanträge in einem Unterordner liegen (z.B. "eingereichte Reihenfolge", "Hauptanträge" oder "Antragsmappe")
   const hauptantragFiles: DriveFileInfo[] = [];
   const motionsSubfolder = rootEntries.find(
-    (e) =>
-      e.isFolder &&
-      /eingereichte\s+reihenfolge|hauptantr[äa]ge|antragsmappe/i.test(e.name)
+    (e) => e.isFolder && /eingereichte\s+reihenfolge|hauptantr[äa]ge|antragsmappe/i.test(e.name),
   );
   if (motionsSubfolder) {
     onProgress?.(`Prüfe Unterordner "${motionsSubfolder.name}"...`);
@@ -264,7 +277,7 @@ export async function crawlDriveFolderLive(
         !e.isFolder &&
         /antragsmappe/i.test(e.name) &&
         !/vorab-kommentierung|bidi/i.test(e.name) &&
-        e.name.toLowerCase().endsWith('.pdf')
+        e.name.toLowerCase().endsWith('.pdf'),
     );
     if (mappeInSub) {
       antragsmappe = toDriveFileInfo(mappeInSub);
@@ -284,9 +297,7 @@ export async function crawlDriveFolderLive(
   }
 
   // 2. Suche nach dem Unterordner "Strategie"
-  const strategieFolder = rootEntries.find(
-    (e) => e.isFolder && /strategie/i.test(e.name)
-  );
+  const strategieFolder = rootEntries.find((e) => e.isFolder && /strategie/i.test(e.name));
 
   const collectedStrategieMap = new Map<string, DriveFileInfo>();
 
@@ -303,7 +314,7 @@ export async function crawlDriveFolderLive(
 
     // 2b. Prüfe relevante Unterordner in "Strategie" (z.B. "Anträge Strategie"), ignoriere "BiDi-Kommentierung"
     const stratSubfolders = stratEntries.filter(
-      (e) => e.isFolder && !/bidi|kommentierung|archiv/i.test(e.name)
+      (e) => e.isFolder && !/bidi|kommentierung|archiv/i.test(e.name),
     );
 
     for (const subFolder of stratSubfolders) {
@@ -333,9 +344,11 @@ export async function crawlDriveFolderLive(
   const manifest: GoogleDriveFolderManifest = {
     folderId,
     antragsmappe,
-    hauptantragFiles: hauptantragFiles.length > 0 ? sortByLeadingNumber(hauptantragFiles) : undefined,
+    hauptantragFiles:
+      hauptantragFiles.length > 0 ? sortByLeadingNumber(hauptantragFiles) : undefined,
     strategieFiles,
     updatedAt: new Date().toISOString(),
+    goFile: goPdfEntry ? toDriveFileInfo(goPdfEntry) : null,
   };
 
   return manifest;
@@ -347,14 +360,16 @@ export async function crawlDriveFolderLive(
  */
 export async function resolveDriveFolderManifest(
   folderUrlOrId: string,
-  onProgress?: (text: string) => void
+  onProgress?: (text: string) => void,
 ): Promise<GoogleDriveFolderManifest> {
   const folderId = extractGoogleDriveFolderId(folderUrlOrId);
   if (!folderId) {
     throw new Error('Ungültiger Google Drive Ordner-Link. Bitte überprüfe den eingefügten Link.');
   }
 
-  console.log(`[DRIVE-CRAWL] ${new Date().toISOString()} | Starte Live-Crawl für Ordner-ID: "${folderId}" (Input: "${folderUrlOrId}")`);
+  console.log(
+    `[DRIVE-CRAWL] ${new Date().toISOString()} | Starte Live-Crawl für Ordner-ID: "${folderId}" (Input: "${folderUrlOrId}")`,
+  );
   onProgress?.('Verbinde mit Google Drive Ordner...');
 
   // 1. Prüfe lokalen Vite Dev Server API Endpoint (falls lokal ausgeführt)
@@ -365,8 +380,19 @@ export async function resolveDriveFolderManifest(
     if (res.ok) {
       const data = await res.json();
       if (data && (data.antragsmappe || (data.strategieFiles && data.strategieFiles.length > 0))) {
-        console.log(`[DRIVE-MANIFEST] ${new Date().toISOString()} | Gefunden über lokalen Server: Antragsmappe="${data.antragsmappe?.name}", Strategien=${data.strategieFiles?.length}`);
-        return data as GoogleDriveFolderManifest;
+        console.log(
+          `[DRIVE-MANIFEST] ${new Date().toISOString()} | Gefunden über lokalen Server: Antragsmappe="${data.antragsmappe?.name}", Strategien=${data.strategieFiles?.length}`,
+        );
+        const serverManifest = data as GoogleDriveFolderManifest;
+        if (!serverManifest.goFile) {
+          try {
+            const liveManifest = await crawlDriveFolderLive(folderId, onProgress);
+            serverManifest.goFile = liveManifest?.goFile ?? null;
+          } catch {
+            serverManifest.goFile = null;
+          }
+        }
+        return serverManifest;
       }
     }
   } catch (_err) {
@@ -382,16 +408,21 @@ export async function resolveDriveFolderManifest(
         (liveManifest.hauptantragFiles && liveManifest.hauptantragFiles.length > 0) ||
         liveManifest.strategieFiles.length > 0)
     ) {
-      console.log(`[DRIVE-MANIFEST] ${new Date().toISOString()} | Live gefunden: Antragsmappe="${liveManifest.antragsmappe?.name || 'keine'}", Hauptdateien=${liveManifest.hauptantragFiles?.length || 0}, Strategien=${liveManifest.strategieFiles.length}`);
+      console.log(
+        `[DRIVE-MANIFEST] ${new Date().toISOString()} | Live gefunden: Antragsmappe="${liveManifest.antragsmappe?.name || 'keine'}", Hauptdateien=${liveManifest.hauptantragFiles?.length || 0}, Strategien=${liveManifest.strategieFiles.length}`,
+      );
       return liveManifest;
     }
   } catch (err: any) {
-    console.error(`[DRIVE-ERROR] ${new Date().toISOString()} | Live-Crawl des Google Drive Ordners fehlgeschlagen:`, err);
+    console.error(
+      `[DRIVE-ERROR] ${new Date().toISOString()} | Live-Crawl des Google Drive Ordners fehlgeschlagen:`,
+      err,
+    );
     throw new Error(`Google Drive Ordner konnte nicht gelesen werden: ${err?.message || err}`);
   }
 
   throw new Error(
-    `Im angegebenen Google Drive Ordner (ID: ${folderId}) konnten keine SiP-Unterlagen gefunden werden. Bitte stelle sicher, dass der Ordner freigegeben ist („Jeder mit dem Link kann ansehen“) und die Antragsmappe (.pdf) sowie der Unterordner „Strategie“ (.docx) enthalten sind.`
+    `Im angegebenen Google Drive Ordner (ID: ${folderId}) konnten keine SiP-Unterlagen gefunden werden. Bitte stelle sicher, dass der Ordner freigegeben ist („Jeder mit dem Link kann ansehen“) und die Antragsmappe (.pdf) sowie der Unterordner „Strategie“ (.docx) enthalten sind.`,
   );
 }
 
@@ -410,10 +441,10 @@ export class DriveDownloadBlockedError extends Error {
     manifest?: GoogleDriveFolderManifest,
     pendingNebenantraege?: SipAntrag[],
     strategyNotes?: string,
-    strategieText?: string
+    strategieText?: string,
   ) {
     super(
-      `Google blockiert den automatischen Download von "${file.name}" (HTTP ${status || 'CORS/403/408'}).`
+      `Google blockiert den automatischen Download von "${file.name}" (HTTP ${status || 'CORS/403/408'}).`,
     );
     this.name = 'DriveDownloadBlockedError';
     this.file = file;
@@ -430,7 +461,7 @@ export class DriveDownloadBlockedError extends Error {
  */
 export async function downloadDriveFileAsArrayBuffer(
   file: DriveFileInfo,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
 ): Promise<ArrayBuffer> {
   onProgress?.(`Lade ${file.name} herunter...`);
 
@@ -468,7 +499,9 @@ export async function downloadDriveFileAsArrayBuffer(
   let lastStatus = 0;
   for (const proxyUrl of proxyUrls) {
     try {
-      console.log(`[DOWNLOAD] ${new Date().toISOString()} | Datei: "${file.name}" | ID: ${fileId} | URL: ${proxyUrl}`);
+      console.log(
+        `[DOWNLOAD] ${new Date().toISOString()} | Datei: "${file.name}" | ID: ${fileId} | URL: ${proxyUrl}`,
+      );
       const controller = new AbortController();
       // 25 Sekunden Timeout für große PDF-Dateien gegen 408 Timeouts
       const timeout = setTimeout(() => controller.abort(), 25000);
@@ -479,7 +512,9 @@ export async function downloadDriveFileAsArrayBuffer(
       if (response.status === 200) {
         const buffer = await response.arrayBuffer();
         if (buffer.byteLength > 100) {
-          console.log(`[DOWNLOAD-OK] ${new Date().toISOString()} | Datei: "${file.name}" | Bytes: ${buffer.byteLength}`);
+          console.log(
+            `[DOWNLOAD-OK] ${new Date().toISOString()} | Datei: "${file.name}" | Bytes: ${buffer.byteLength}`,
+          );
           return buffer;
         }
       }
@@ -507,7 +542,7 @@ export async function downloadAndParseDriveStrategieFiles(
   manifest: GoogleDriveFolderManifest,
   onProgress?: AutoImportProgressCallback,
   startPercent: number = 25,
-  spanPercent: number = 32
+  spanPercent: number = 32,
 ): Promise<{
   combinedStrategieText: string;
   nebenantraege: SipAntrag[];
@@ -524,7 +559,7 @@ export async function downloadAndParseDriveStrategieFiles(
       percent: pct,
       statusText: `Lade Strategiedokumente herunter (${Math.min(
         totalStrats,
-        start + 1
+        start + 1,
       )}–${Math.min(totalStrats, start + batch.length)} von ${totalStrats})...`,
     });
 
@@ -543,7 +578,7 @@ export async function downloadAndParseDriveStrategieFiles(
         } catch (err) {
           console.warn(`Fehler beim Laden von Strategiedatei ${file.name}:`, err);
         }
-      })
+      }),
     );
   }
 
@@ -568,9 +603,10 @@ export async function downloadAndParseDriveStrategieFiles(
  * 5. Gibt die finale Meldung "Alle Anträge hochgeladen! Das SiP ist nun einsatzbereit!" zurück
  */
 export async function executeOnlineDriveImport(
-  options: ExecuteOnlineDriveImportOptions
+  options: ExecuteOnlineDriveImportOptions,
 ): Promise<AutoImportResult> {
-  const { folderUrlOrId, onProgress, manualPdfBuffer, cachedManifest, cachedStrategieText } = options;
+  const { folderUrlOrId, onProgress, manualPdfBuffer, cachedManifest, cachedStrategieText } =
+    options;
 
   onProgress?.({
     percent: 5,
@@ -591,7 +627,7 @@ export async function executeOnlineDriveImport(
     manifest.strategieFiles.length === 0
   ) {
     throw new Error(
-      'Weder Antragsmappe (PDF) noch Strategiedateien (DOCX) im Google Drive Ordner gefunden.'
+      'Weder Antragsmappe (PDF) noch Strategiedateien (DOCX) im Google Drive Ordner gefunden.',
     );
   }
 
@@ -634,9 +670,8 @@ export async function executeOnlineDriveImport(
       statusText: `Lade Antragsmappe herunter (${manifest.antragsmappe.name})...`,
     });
     try {
-      const pdfBuffer = await downloadDriveFileAsArrayBuffer(
-        manifest.antragsmappe,
-        (status) => onProgress?.({ percent: 50, statusText: status })
+      const pdfBuffer = await downloadDriveFileAsArrayBuffer(manifest.antragsmappe, (status) =>
+        onProgress?.({ percent: 50, statusText: status }),
       );
 
       onProgress?.({
@@ -650,7 +685,7 @@ export async function executeOnlineDriveImport(
         antragsmappeText = await extractTextFromDocxArrayBuffer(pdfBuffer);
       }
       console.log(
-        `[DRIVE-PDF] Antragsmappe "${manifest.antragsmappe.name}" extrahiert (${antragsmappeText.length} Zeichen)`
+        `[DRIVE-PDF] Antragsmappe "${manifest.antragsmappe.name}" extrahiert (${antragsmappeText.length} Zeichen)`,
       );
     } catch (err: any) {
       console.warn('Download der Antragsmappe fehlgeschlagen:', err);
@@ -660,7 +695,7 @@ export async function executeOnlineDriveImport(
         manifest,
         preParsedNebenantraege,
         preParsedStrategyNotes,
-        combinedStrategieText
+        combinedStrategieText,
       );
       throw blockedErr;
     }
@@ -683,7 +718,7 @@ export async function executeOnlineDriveImport(
         percent: pct,
         statusText: `Lade Hauptanträge herunter (${Math.min(
           totalHauptFiles,
-          start + 1
+          start + 1,
         )}–${Math.min(totalHauptFiles, start + batch.length)} von ${totalHauptFiles})...`,
       });
 
@@ -705,7 +740,7 @@ export async function executeOnlineDriveImport(
           } catch (err) {
             console.warn(`Fehler beim Laden von Hauptantrag ${file.name}:`, err);
           }
-        })
+        }),
       );
     }
 
@@ -725,7 +760,7 @@ export async function executeOnlineDriveImport(
   const hauptAntraege = combined.hauptantraege;
   const subAntraege = combined.nebenantraege;
   console.log(
-    `[ONLINE-DRIVE] Import abgeschlossen: ${combined.antraege.length} Anträge gesamt (${hauptAntraege.length} Hauptanträge, ${subAntraege.length} Nebenanträge/WM)`
+    `[ONLINE-DRIVE] Import abgeschlossen: ${combined.antraege.length} Anträge gesamt (${hauptAntraege.length} Hauptanträge, ${subAntraege.length} Nebenanträge/WM)`,
   );
   const totalMotions = Math.max(1, hauptAntraege.length);
 
@@ -758,6 +793,7 @@ export async function executeOnlineDriveImport(
   return {
     success: combined.antraege.length > 0,
     message: finalMessage,
+    goFile: manifest.goFile ?? null,
     antraege: combined.antraege,
     hauptantraege: combined.hauptantraege,
     nebenantraege: combined.nebenantraege,

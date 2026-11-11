@@ -258,7 +258,13 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
     const newSec = generateTotpSecret();
     prepareTotpQr(newSec);
   }
-
+  function getAccountCategory(acc: MemberAccount): string {
+    if (acc.role === 'strategie') return 'Strategieführung';
+    if (acc.isExternal || acc.role === 'gast') return 'Externe Gäste';
+    if (acc.role === 'presse') return 'Presse';
+    if (acc.role === 'admin') return 'Administratoren';
+    return 'Mitglieder';
+  }
   // Filtered accounts
   const filteredAccounts = useMemo(() => {
     return settings.memberAccounts
@@ -268,7 +274,7 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
         if (roleFilter === 'STRATEGIE' && acc.role !== 'strategie') return false;
         if (roleFilter === 'MEMBER' && (acc.isExternal || acc.role === 'strategie')) return false;
         if (roleFilter === 'INTERNAL' && acc.role !== 'mitglied') return false;
-        if (roleFilter === 'EXTERNAL' && !acc.isExternal) return false;
+        if (roleFilter === 'EXTERNAL' && (!acc.isExternal || isExp)) return false;
         if (roleFilter === 'EXPIRED' && !isExp) return false;
 
         if (searchQuery.trim()) {
@@ -281,7 +287,27 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
         }
         return true;
       })
-      .sort((a, b) => comparePeopleByLastName(a.name, b.name));
+      .sort((a, b) => {
+        if (roleFilter === 'EXPIRED') {
+          const categoryOrder = [
+            'Externe Gäste',
+            'Mitglieder',
+            'Strategieführung',
+            'Presse',
+            'Administratoren',
+          ];
+          const categoryDifference =
+            categoryOrder.indexOf(getAccountCategory(a)) -
+            categoryOrder.indexOf(getAccountCategory(b));
+
+          if (categoryDifference !== 0) return categoryDifference;
+        }
+
+        // Pro Kategorie erst nicht deaktivierte, dann deaktivierte Accounts;
+        // innerhalb der Gruppen alphabetisch sortieren.
+        const disabledDifference = Number(Boolean(a.isDisabled)) - Number(Boolean(b.isDisabled));
+        return disabledDifference || comparePeopleByLastName(a.name, b.name);
+      });
   }, [settings.memberAccounts, roleFilter, searchQuery]);
 
   function calculateExpiresAt(preset: string, customDate: string): string | null {
@@ -718,8 +744,16 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
       showBanner('Die Freischaltung konnte nicht gespeichert werden.');
     }
   }
-  const tabKeys: SipSubTab[] = ['antraege', 'past_antraege', 'drive', 'memes', 'archive'];
+  const tabKeys: SipSubTab[] = ['antraege', 'past_antraege', 'drive', 'memes', 'archive', 'go'];
 
+  const tabLabels: Record<SipSubTab, string> = {
+    antraege: 'Anträge',
+    past_antraege: 'Vergangene Anträge',
+    drive: 'Drive',
+    memes: 'Memes',
+    archive: 'Archiv',
+    go: 'Geschäftsordnung',
+  };
   function handleTabPermissionChange(
     role: SipRoleKey,
     tab: SipSubTab,
@@ -1043,7 +1077,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                Externe Gäste ({settings.memberAccounts.filter((a) => a.isExternal).length})
+                Externe Gäste (
+                {settings.memberAccounts.filter((a) => a.isExternal && !isAccountExpired(a)).length}
+                )
               </button>
 
               <button
@@ -1061,15 +1097,22 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
           </div>
 
           {/* User Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {filteredAccounts.map((acc) => {
-              const isExpired = isAccountExpired(acc);
-              const isDisabled = Boolean(acc.isDisabled);
-              const isLeader = acc.role === 'strategie';
+          {filteredAccounts.map((acc, index) => {
+            const isExpired = isAccountExpired(acc);
+            const isDisabled = Boolean(acc.isDisabled);
+            const isLeader = acc.role === 'strategie';
+            const category = getAccountCategory(acc);
+            const previousCategory =
+              index > 0 ? getAccountCategory(filteredAccounts[index - 1]) : null;
 
-              return (
+            return (
+              <React.Fragment key={acc.username}>
+                {roleFilter === 'EXPIRED' && category !== previousCategory && (
+                  <h3 className="md:col-span-2 border-b border-slate-700 pb-1 text-sm font-bold text-slate-300">
+                    {category}
+                  </h3>
+                )}
                 <div
-                  key={acc.username}
                   className={`p-4 rounded-2xl border transition-all ${
                     isExpired
                       ? 'bg-rose-950/10 border-rose-500/30'
@@ -1316,9 +1359,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 
@@ -1636,8 +1679,9 @@ export const SipAdminView: React.FC<SipAdminViewProps> = ({
                         key={`${role}-${tab}`}
                         className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950 p-2"
                       >
-                        <span className="text-xs font-semibold text-slate-300">{tab}</span>
-
+                        <span className="text-xs font-semibold text-slate-300">
+                          {tabLabels[tab]}
+                        </span>
                         <div className="flex items-center gap-3">
                           <label className="flex items-center gap-1 text-xs text-slate-300">
                             <input

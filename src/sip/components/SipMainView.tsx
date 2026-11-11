@@ -32,6 +32,7 @@ import {
   Edit3,
   Trash2,
   EyeOff,
+  BookOpen,
 } from 'lucide-react';
 import { AppSettings, MemberAccount, defaultRoleTabAccess } from '../../types';
 import type { SipRoleKey } from '../../types';
@@ -56,6 +57,7 @@ import { MotionParserModal } from './MotionParserModal';
 import { DriveFolderViewer } from './DriveFolderViewer';
 import { MemeFeedTab } from './MemeFeedTab';
 import { SipArchiveView } from './SipArchiveView';
+import { SipPdfViewer } from './SipPdfViewer';
 import { downloadSipProtocol } from '../utils/protocolExporter';
 import { cleanSubMotionTitle } from '../utils/sipAutoImporter';
 import suLogo from '../../assets/su-logo.png';
@@ -379,8 +381,7 @@ interface SipMainViewProps {
   isAdminUnlocked: boolean;
 }
 
-export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive';
-
+export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive' | 'go';
 export const SipMainView: React.FC<SipMainViewProps> = ({
   settings,
   currentMember,
@@ -678,7 +679,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     if (canSeeTab(currentSubTab)) return;
 
     const firstVisibleTab = (
-      ['antraege', 'past_antraege', 'drive', 'memes', 'archive'] as SipSubTab[]
+      ['antraege', 'past_antraege', 'drive', 'memes', 'archive', 'go'] as SipSubTab[]
     ).find(canSeeTab);
 
     setCurrentSubTab(firstVisibleTab ?? 'antraege');
@@ -1532,6 +1533,22 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                     </span>
                   )}
                 </div>
+              </button>
+            )}
+
+            {canSeeTab('go') && (
+              <button
+                type="button"
+                onClick={() => setCurrentSubTab('go')}
+                className={`flex w-full min-w-0 items-center gap-2.5 rounded-2xl px-3 py-2.5 text-xs font-bold transition sm:text-sm ${
+                  currentSubTab === 'go'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                    : 'text-slate-300 hover:bg-slate-800'
+                } ${isSidebarCollapsed ? 'md:justify-center' : 'justify-start'}`}
+                title="Geschäftsordnung"
+              >
+                <BookOpen className="h-4 w-4 shrink-0 text-emerald-400" />
+                {!isSidebarCollapsed && <span className="truncate">Geschäftsordnung</span>}
               </button>
             )}
 
@@ -2624,6 +2641,47 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
               onUpdateFolderUrl={handleUpdateDriveUrl}
               onOpenParser={() => setShowParserModal(true)}
             />
+          )}
+
+          {currentSubTab === 'go' && canSeeTab('go') && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <BookOpen className="h-6 w-6 text-emerald-400" />
+                    <span>Geschäftsordnung (GO)</span>
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                    Offizielle Geschäftsordnung des Schüler:innenparlaments
+                  </p>
+                </div>
+              </div>
+
+              {session.uploadedDocuments?.find((document) => document.doc_type === 'go') ? (
+                (() => {
+                  const goDocument = session.uploadedDocuments!.find(
+                    (document) => document.doc_type === 'go',
+                  )!;
+
+                  return (
+                    <SipPdfViewer
+                      url={goDocument.url}
+                      title={goDocument.title || 'Geschäftsordnung'}
+                    />
+                  );
+                })()
+              ) : (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900 p-8 text-center">
+                  <BookOpen className="mx-auto h-12 w-12 text-slate-600 mb-3" />
+                  <h3 className="text-base font-bold text-white mb-1">
+                    Keine Geschäftsordnung hinterlegt
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+                    Für diese Sitzung wurde noch keine Geschäftsordnung hochgeladen. Die Strategieführung kann beim Starten einer neuen Sitzung im Archiv-Reiter eine GO-PDF bereitstellen.
+                  </p>
+                </div>
+              )}
+            </section>
           )}
 
           {/* Subtab 4: Meme-Feed */}

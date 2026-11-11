@@ -118,7 +118,7 @@ export interface SipArchivedSession {
 export interface SipUploadedDocument {
   id: string;
   title: string;
-  doc_type: 'antragsmappe' | 'strategie' | 'general';
+  doc_type: 'antragsmappe' | 'strategie' | 'general' | 'go';
   file: string;
   url: string;
   size?: number;
@@ -208,7 +208,8 @@ export const ANTRAG_TYPE_CONFIG: Record<
 export const DEFAULT_SIP_SESSION: SipSession = {
   id: 'currentsession0',
   title: '2. Schüler:innenparlament (SiP) 2024/25',
-  driveFolderUrl: 'https://drive.google.com/drive/folders/1srawS_1c9GZCqDCDuUUPhU_02FPttxi-?usp=share_link',
+  driveFolderUrl:
+    'https://drive.google.com/drive/folders/1srawS_1c9GZCqDCDuUUPhU_02FPttxi-?usp=share_link',
   strategyNotes: REAL_SIP_STRATEGY_NOTES,
   activeAntragId: null,
   voteRecommendation: {

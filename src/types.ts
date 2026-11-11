@@ -36,6 +36,7 @@ export interface AppSettings {
   updatedAt?: string;
   pocketbaseUrl?: string;
   adminDashboardUsernames?: string[];
+  roleTabAccess?: SipRoleTabAccess;
 }
 
 export const DEFAULT_ALLOWED_MEMBERS: string[] = [
@@ -180,7 +181,7 @@ export const DEFAULT_SIP_SETTINGS: AppSettings = {
 
 export type SipRoleKey = 'admin' | 'strategie' | 'mitglied' | 'gast';
 
-export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive';
+export type SipSubTab = 'antraege' | 'past_antraege' | 'drive' | 'memes' | 'archive' | 'go';
 
 export type SipTabPermission = {
   visible: boolean;
@@ -196,6 +197,7 @@ export const defaultRoleTabAccess: SipRoleTabAccess = {
     drive: { visible: true, editable: true },
     memes: { visible: true, editable: true },
     archive: { visible: true, editable: true },
+    go: { visible: true, editable: true },
   },
   strategie: {
     antraege: { visible: true, editable: true },
@@ -203,6 +205,7 @@ export const defaultRoleTabAccess: SipRoleTabAccess = {
     drive: { visible: true, editable: true },
     memes: { visible: true, editable: true },
     archive: { visible: true, editable: true },
+    go: { visible: true, editable: true },
   },
   mitglied: {
     antraege: { visible: true, editable: true },
@@ -210,6 +213,7 @@ export const defaultRoleTabAccess: SipRoleTabAccess = {
     drive: { visible: false, editable: false },
     memes: { visible: true, editable: false },
     archive: { visible: false, editable: false },
+    go: { visible: false, editable: false },
   },
   gast: {
     antraege: { visible: true, editable: false },
@@ -217,10 +221,6 @@ export const defaultRoleTabAccess: SipRoleTabAccess = {
     drive: { visible: false, editable: false },
     memes: { visible: false, editable: false },
     archive: { visible: false, editable: false },
+    go: { visible: false, editable: false },
   },
 };
-
-export interface AppSettings {
-  // ...bestehende Felder...
-  roleTabAccess?: SipRoleTabAccess;
-}

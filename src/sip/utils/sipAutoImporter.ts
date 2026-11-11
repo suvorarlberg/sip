@@ -40,6 +40,13 @@ export interface AutoImportResult {
   hauptantraege?: SipAntrag[];
   nebenantraege?: SipAntrag[];
   strategyNotes: string;
+  goFile?: {
+    name: string;
+    id: string;
+    downloadUrl: string;
+    mimeType?: string;
+  } | null;
+  localGoFile?: File | null;
   summary: {
     hauptAntraegeCount: number;
     subAntraegeCount: number;
@@ -62,7 +69,10 @@ export function cleanSubMotionTitle(rawTitle: string): string {
   // Entferne (XX), (XXX), (?), (offen), etc.
   clean = clean.replace(/\s*\([xX\?\s\-]+\)/gi, '');
   // Entferne Klammern, die einen Personennamen enthalten (nicht aber FP oder Zeilenbezug)
-  clean = clean.replace(/\s*\((?!(?:zu\s+|zur\s+)?(?:fp|forderungspunkt|zeile|z\.|§)\b)[^)]+\)/gi, '');
+  clean = clean.replace(
+    /\s*\((?!(?:zu\s+|zur\s+)?(?:fp|forderungspunkt|zeile|z\.|§)\b)[^)]+\)/gi,
+    '',
+  );
   // Vereinheitliche "zu/zur FP X" zu "(FP X)" falls noch nicht in Klammern
   clean = clean.replace(/\b(?:zu|zur)\s+(fp|forderungspunkt|zeile|z\.|§)\s*(\d+)\b/gi, '($1 $2)');
   // Doppelpunkt, Bindestrich oder Leerzeichen am Ende entfernen
@@ -76,31 +86,36 @@ export function cleanSubMotionTitle(rawTitle: string): string {
  */
 export function normalizeTitleForMatching(title: string): string {
   if (!title) return '';
-  return title
-    .normalize('NFC')
-    .toLowerCase()
-    // Entferne Datei-Präfixe wie "--- strategie: "
-    .replace(/^---\s*(?:strategie|antrag)\s*:\s*/gi, '')
-    .replace(/\s*---$/gi, '')
-    // Entferne Dateierweiterungen
-    .replace(/\.(?:pdf|docx|doc|txt|md)$/i, '')
-    // Entferne nachgestellte "_Strategie" Suffixe
-    .replace(/_strategie$/i, '')
-    // Entferne "Strategie_0_", "Strategie_12_" Präfixe
-    .replace(/^strategie[\s_\-]*\d*[\s_\-]*/i, '')
-    // Entferne vorangestellte "Antrag 1:", "Top 2." Nummerierungen zuerst
-    .replace(/^(?:(?:haupt)?antrag|top)\s+\d+\s*[\.:\-\s]+/gi, '')
-    // Entferne danach ggf. "Antrag aus dem Ausschuss:", "Initiativantrag:", "GO Antrag:" Präfixe
-    .replace(/^(?:(?:strategie\s+(?:für|zu)\s+)?(?:go[\s\-]*)?(?:haupt|initiativ)?antrag(?:\s+aus\s+dem\s+ausschuss)?|top)\s*\d*[\.:\-\s]*/gi, '')
-    .replace(/^\d{1,2}[\._:\-\s]+/g, '')
-    // Entferne Präfix-Tags wie "[BS]" oder "[Gymnasium]"
-    .replace(/^\[[a-zäöü\s-]+\][:\s-]*/gi, '')
-    .replace(/\([^)]+\)$/g, '')
-    // Vereinheitliche Anführungszeichen, Bindestriche, Unterstriche & Satzzeichen
-    .replace(/[\u2013\u2014_]/g, ' ')
-    .replace(/[.,:;!?'"„“”«»()\[\]{}\/\\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    title
+      .normalize('NFC')
+      .toLowerCase()
+      // Entferne Datei-Präfixe wie "--- strategie: "
+      .replace(/^---\s*(?:strategie|antrag)\s*:\s*/gi, '')
+      .replace(/\s*---$/gi, '')
+      // Entferne Dateierweiterungen
+      .replace(/\.(?:pdf|docx|doc|txt|md)$/i, '')
+      // Entferne nachgestellte "_Strategie" Suffixe
+      .replace(/_strategie$/i, '')
+      // Entferne "Strategie_0_", "Strategie_12_" Präfixe
+      .replace(/^strategie[\s_\-]*\d*[\s_\-]*/i, '')
+      // Entferne vorangestellte "Antrag 1:", "Top 2." Nummerierungen zuerst
+      .replace(/^(?:(?:haupt)?antrag|top)\s+\d+\s*[\.:\-\s]+/gi, '')
+      // Entferne danach ggf. "Antrag aus dem Ausschuss:", "Initiativantrag:", "GO Antrag:" Präfixe
+      .replace(
+        /^(?:(?:strategie\s+(?:für|zu)\s+)?(?:go[\s\-]*)?(?:haupt|initiativ)?antrag(?:\s+aus\s+dem\s+ausschuss)?|top)\s*\d*[\.:\-\s]*/gi,
+        '',
+      )
+      .replace(/^\d{1,2}[\._:\-\s]+/g, '')
+      // Entferne Präfix-Tags wie "[BS]" oder "[Gymnasium]"
+      .replace(/^\[[a-zäöü\s-]+\][:\s-]*/gi, '')
+      .replace(/\([^)]+\)$/g, '')
+      // Vereinheitliche Anführungszeichen, Bindestriche, Unterstriche & Satzzeichen
+      .replace(/[\u2013\u2014_]/g, ' ')
+      .replace(/[.,:;!?'"„“”«»()\[\]{}\/\\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /**
@@ -159,7 +174,10 @@ export function parseSiPFileNameMeta(fileName: string): {
 
   // Wenn "_" mit nachfolgendem Leerzeichen vorkommt (z.B. "Antrag aus dem Ausschuss_ Politische Bildung..."),
   // war das im Original ein Doppelpunkt oder Fragezeichen -> erst ab echte Autor-Suffixe ohne führendes Leerzeichen splitten
-  const parts = rest.split('_').map((p) => p.trim()).filter(Boolean);
+  const parts = rest
+    .split('_')
+    .map((p) => p.trim())
+    .filter(Boolean);
   let author: string | undefined;
   let title = rest;
 
@@ -168,16 +186,23 @@ export function parseSiPFileNameMeta(fileName: string): {
     const secondLastPart = parts.length >= 3 ? parts[parts.length - 2] : undefined;
     const looksLikeFullPersonName = (s: string) =>
       /^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß\-]+){1,2}$/.test(s);
-    const looksLikeSingleNameToken = (s: string) =>
-      /^[A-ZÄÖÜ][a-zäöüß\-]{1,20}$/.test(s);
+    const looksLikeSingleNameToken = (s: string) => /^[A-ZÄÖÜ][a-zäöüß\-]{1,20}$/.test(s);
 
-    if (secondLastPart && looksLikeFullPersonName(lastPart) && looksLikeFullPersonName(secondLastPart)) {
+    if (
+      secondLastPart &&
+      looksLikeFullPersonName(lastPart) &&
+      looksLikeFullPersonName(secondLastPart)
+    ) {
       author = `${secondLastPart}, ${lastPart}`;
       title = parts.slice(0, -2).join(': ').trim();
     } else if (looksLikeFullPersonName(lastPart)) {
       author = lastPart;
       title = parts.slice(0, -1).join(': ').trim();
-    } else if (secondLastPart && looksLikeSingleNameToken(secondLastPart) && looksLikeSingleNameToken(lastPart)) {
+    } else if (
+      secondLastPart &&
+      looksLikeSingleNameToken(secondLastPart) &&
+      looksLikeSingleNameToken(lastPart)
+    ) {
       // z.B. "..._Nick_Klein" oder "..._Rania_Amina"
       author = `${secondLastPart} ${lastPart}`;
       title = parts.slice(0, -2).join(': ').trim();
@@ -256,7 +281,11 @@ export function parseAntragsmappeText(rawText: string): {
   const rawAllLines = normalizedRaw.split(/\r?\n/);
   let lastAuthorLineIdx = -1;
   for (let i = 0; i < rawAllLines.length; i++) {
-    if (/^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]/i.test(rawAllLines[i].trim())) {
+    if (
+      /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]/i.test(
+        rawAllLines[i].trim(),
+      )
+    ) {
       lastAuthorLineIdx = i;
     }
   }
@@ -264,9 +293,7 @@ export function parseAntragsmappeText(rawText: string): {
   for (let i = Math.max(0, lastAuthorLineIdx + 1); i < rawAllLines.length; i++) {
     const t = rawAllLines[i].trim();
     if (!t || isTableOfContentsLine(t)) continue;
-    if (
-      /^(?:anhang\s*:?\s*)?geschäftsordnung(?:\s+des\s+vorarlberger|\s*\(go\)|\s*$)/i.test(t)
-    ) {
+    if (/^(?:anhang\s*:?\s*)?geschäftsordnung(?:\s+des\s+vorarlberger|\s*\(go\)|\s*$)/i.test(t)) {
       cleanText = rawAllLines.slice(0, i).join('\n');
       goExcluded = true;
       break;
@@ -306,7 +333,7 @@ export function parseAntragsmappeText(rawText: string): {
     for (let i = 0; i < cleanedDocLines.length; i++) {
       if (
         /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]/i.test(
-          cleanedDocLines[i]
+          cleanedDocLines[i],
         )
       ) {
         authorIndices.push(i);
@@ -326,7 +353,10 @@ export function parseAntragsmappeText(rawText: string): {
         // Prüfe bis zu 3 Zeilen vor "Antragsteller_in:" auf expliziten Antragskopf ("Antrag:", "GO Antrag:", "Initiativantrag aus dem Ausschuss: ...")
         for (let lookback = 3; lookback >= 1; lookback--) {
           const candIdx = aIdx - lookback;
-          if (candIdx >= minAllowedIdx && explicitMotionPrefixRegex.test(cleanedDocLines[candIdx])) {
+          if (
+            candIdx >= minAllowedIdx &&
+            explicitMotionPrefixRegex.test(cleanedDocLines[candIdx])
+          ) {
             startIdx = candIdx;
             break;
           }
@@ -337,7 +367,7 @@ export function parseAntragsmappeText(rawText: string): {
           const prevLine = cleanedDocLines[aIdx - 2];
           const isBulletOrDemand =
             /^(?:[0-9]+[\.\)]|[\u2022\u2023\u25CF\u25CB\u25AA\u25AB\u25E6\u2043\u2219\uF0B7\uF0A7\*\-–]|\([0-9]+\))\s*/.test(
-              prevLine
+              prevLine,
             ) || /fordert/i.test(prevLine);
           const endsLikeSentence = /[.;!”"']$/.test(prevLine);
           if (!isBulletOrDemand && !endsLikeSentence && prevLine.length < 95) {
@@ -350,7 +380,8 @@ export function parseAntragsmappeText(rawText: string): {
 
       for (let idx = 0; idx < blockStartIndices.length; idx++) {
         const start = blockStartIndices[idx];
-        const end = idx + 1 < blockStartIndices.length ? blockStartIndices[idx + 1] : cleanedDocLines.length;
+        const end =
+          idx + 1 < blockStartIndices.length ? blockStartIndices[idx + 1] : cleanedDocLines.length;
         const blockStr = cleanedDocLines.slice(start, end).join('\n').trim();
         if (blockStr.length > 15) {
           rawBlocks.push(blockStr);
@@ -380,7 +411,8 @@ export function parseAntragsmappeText(rawText: string): {
       .split(fallbackRegex)
       .map((b) => b.trim())
       .filter((b) => b.length > 15);
-    rawBlocks = fallbackSplit.length > 1 ? fallbackSplit : rawBlocks.length > 0 ? rawBlocks : [cleanText];
+    rawBlocks =
+      fallbackSplit.length > 1 ? fallbackSplit : rawBlocks.length > 0 ? rawBlocks : [cleanText];
   }
 
   const hauptAntraege: ParsedHauptAntrag[] = [];
@@ -414,7 +446,9 @@ export function parseAntragsmappeText(rawText: string): {
 
     // Finde Zeile des Antragstellers (submitter)
     const authorLineIndex = lines.findIndex((l) =>
-      /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]/i.test(l)
+      /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]/i.test(
+        l,
+      ),
     );
 
     // Alle Zeilen vor authorLineIndex bilden den Antragskopf / Titel (auch mehrzeilig!)
@@ -434,10 +468,13 @@ export function parseAntragsmappeText(rawText: string): {
           titleLines.length > 1 &&
           idx === 0 &&
           /^(?:(?:go[\s\-]*)?(?:haupt|initiativ)?antrag|top)\s*\d*\s*[:.]?\s*$/i.test(l)
-        )
+        ),
     );
 
-    const headerLine = (filteredTitleLines.length > 0 ? filteredTitleLines : titleLines).join(' ').trim() || fileMetaTitle || lines[0];
+    const headerLine =
+      (filteredTitleLines.length > 0 ? filteredTitleLines : titleLines).join(' ').trim() ||
+      fileMetaTitle ||
+      lines[0];
 
     // Ignoriere Deckblatt, Inhaltsverzeichnis oder reine Vorab-Kommentare
     const hasMotionIndicators =
@@ -447,7 +484,9 @@ export function parseAntragsmappeText(rawText: string): {
       Boolean(fileBannerMatch);
 
     if (
-      /^inhaltsverzeichnis|^geschäftsordnung\s+des\s+vorarlberger|vorab-kommentierung|liebe\s+schüler/i.test(headerLine) ||
+      /^inhaltsverzeichnis|^geschäftsordnung\s+des\s+vorarlberger|vorab-kommentierung|liebe\s+schüler/i.test(
+        headerLine,
+      ) ||
       !hasMotionIndicators
     ) {
       continue;
@@ -465,7 +504,7 @@ export function parseAntragsmappeText(rawText: string): {
     let extraAuthorLineIndex = -1;
     if (authorLineIndex >= 0) {
       const match = lines[authorLineIndex].match(
-        /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]\s*(.+)$/i
+        /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]\s*(.+)$/i,
       );
       if (match && match[1]) {
         author = match[1].replace(/^[^\wÄÖÜäöüß]+/, '').trim();
@@ -480,7 +519,7 @@ export function parseAntragsmappeText(rawText: string): {
       }
     } else {
       const authorMatch = strippedBlock.match(
-        /(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]\s*([^\r\n]+)/i
+        /(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?)\s*[:\-]\s*([^\r\n]+)/i,
       );
       if (authorMatch && authorMatch[1]) {
         author = authorMatch[1].replace(/^[^\wÄÖÜäöüß]+/, '').trim();
@@ -490,8 +529,14 @@ export function parseAntragsmappeText(rawText: string): {
 
     // 3. Titel isolieren – niemals Antragsteller-Namen einbinden!
     let cleanTitle = cleanPdfKerningArtifacts(headerLine)
-      .replace(/^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von)\s*[:\-].*$/i, '')
-      .replace(/^(?:(?:go[\s\-]*)?(?:haupt)?antrag(?:\s+\d+\s*[:.]?|\s*[:.])|top\s+\d+\s*[:.]?|\d{1,2}\.\s*)/i, '')
+      .replace(
+        /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von)\s*[:\-].*$/i,
+        '',
+      )
+      .replace(
+        /^(?:(?:go[\s\-]*)?(?:haupt)?antrag(?:\s+\d+\s*[:.]?|\s*[:.])|top\s+\d+\s*[:.]?|\d{1,2}\.\s*)/i,
+        '',
+      )
       .trim();
 
     if (!cleanTitle && fileMetaTitle) {
@@ -504,7 +549,9 @@ export function parseAntragsmappeText(rawText: string): {
     // 4. Forderungen & Begründungstext aus den Körperzeilen (nach der Antragsteller-Zeile) trennen
     const bodyStartIdx =
       authorLineIndex >= 0
-        ? (extraAuthorLineIndex >= 0 ? extraAuthorLineIndex + 1 : authorLineIndex + 1)
+        ? extraAuthorLineIndex >= 0
+          ? extraAuthorLineIndex + 1
+          : authorLineIndex + 1
         : filteredTitleLines.length;
     const bodyLines = lines.slice(bodyStartIdx);
 
@@ -592,7 +639,7 @@ export function parseAntragsmappeText(rawText: string): {
     hauptAntraege.push(parsedMotion);
 
     console.log(
-      `[PARSED] Typ: HAUPTANTRAG | Titel: ${parsedMotion.cleanTitle} | Submitter: ${parsedMotion.author} | Textlänge: ${parsedMotion.content.length} | Forderungen: ${parsedMotion.forderungspunkte.length}`
+      `[PARSED] Typ: HAUPTANTRAG | Titel: ${parsedMotion.cleanTitle} | Submitter: ${parsedMotion.author} | Textlänge: ${parsedMotion.content.length} | Forderungen: ${parsedMotion.forderungspunkte.length}`,
     );
   }
 
@@ -604,7 +651,8 @@ function isPlaceholderClaim(candidate: string): boolean {
   if (!cleaned || cleaned.length <= 1) return true;
   if (/^\d+$/.test(cleaned)) return true;
   if (/^x+$/i.test(cleaned)) return true; // XX, XXX, x
-  if (/^(?:tbd|offen|frei|niemand|none|null|n\/a|folgt|tba|alle|nichtamanfang)$/i.test(cleaned)) return true;
+  if (/^(?:tbd|offen|frei|niemand|none|null|n\/a|folgt|tba|alle|nichtamanfang)$/i.test(cleaned))
+    return true;
   if (/^(?:fp|forderungspunkt|z|zeile)\d*$/i.test(cleaned)) return true;
   if (/zusammenmit/i.test(cleaned)) return true;
   return false;
@@ -650,7 +698,7 @@ function matchSubMotionHeaderLine(line: string): {
 
   // 1. Ende der Debatte
   const eddMatch = trimmed.match(
-    /^(?:ende\s+der\s+debatte(?:\s*\/\s*letzte\s+minute)?|schluss\s+der\s+debatte)\s*(\([^)]*\))?\s*(?:[:\-]\s*(.*))?$/i
+    /^(?:ende\s+der\s+debatte(?:\s*\/\s*letzte\s+minute)?|schluss\s+der\s+debatte)\s*(\([^)]*\))?\s*(?:[:\-]\s*(.*))?$/i,
   );
   if (eddMatch) {
     return {
@@ -777,7 +825,10 @@ export function parseStrategieSubMotions(rawText: string): {
     }
 
     const fpOnlyMatch = finalText.match(/(?:(?:zu\s+|zur\s+)?(?:fp|forderungspunkt)\s*(\d+))/i);
-    if (fpOnlyMatch && (!activeBuffer.lineOrParagraph || activeBuffer.lineOrParagraph.length === 0)) {
+    if (
+      fpOnlyMatch &&
+      (!activeBuffer.lineOrParagraph || activeBuffer.lineOrParagraph.length === 0)
+    ) {
       activeBuffer.lineOrParagraph = `FP ${fpOnlyMatch[1]}`;
     }
 
@@ -786,12 +837,12 @@ export function parseStrategieSubMotions(rawText: string): {
         activeBuffer.type === 'SA'
           ? 'Streichungsantrag'
           : activeBuffer.type === 'EA'
-          ? 'Erweiterungsantrag'
-          : activeBuffer.type === 'AAA'
-          ? 'Abänderungsantrag'
-          : activeBuffer.type === 'ENDE_DEBATTE'
-          ? 'Antrag auf Ende der Debatte'
-          : 'Wortmeldung';
+            ? 'Erweiterungsantrag'
+            : activeBuffer.type === 'AAA'
+              ? 'Abänderungsantrag'
+              : activeBuffer.type === 'ENDE_DEBATTE'
+                ? 'Antrag auf Ende der Debatte'
+                : 'Wortmeldung';
       finalText = activeBuffer.lineOrParagraph
         ? `${typeDesc} zu ${activeBuffer.lineOrParagraph}`
         : `${typeDesc} zum vorliegenden Hauptantrag`;
@@ -801,8 +852,8 @@ export function parseStrategieSubMotions(rawText: string): {
       activeBuffer.type === 'AAA'
         ? 'ÄA'
         : activeBuffer.type === 'ENDE_DEBATTE'
-        ? 'Ende der Debatte'
-        : activeBuffer.type;
+          ? 'Ende der Debatte'
+          : activeBuffer.type;
     const typeLabel = activeBuffer.numSuffix ? `${shortType} ${activeBuffer.numSuffix}` : shortType;
     const cleanFp = activeBuffer.lineOrParagraph
       ? activeBuffer.lineOrParagraph.replace(/^(?:zu|zur)\s+/i, '').trim()
@@ -826,7 +877,7 @@ export function parseStrategieSubMotions(rawText: string): {
     console.log(
       `[PARSED] Typ: ${completedSubMotion.type} | Titel: ${completedSubMotion.title} | Submitter: ${
         completedSubMotion.claimedBy || completedSubMotion.author || 'Delegierte:r'
-      } | Textlänge: ${completedSubMotion.text.length}`
+      } | Textlänge: ${completedSubMotion.text.length}`,
     );
 
     activeBuffer = null;
@@ -865,7 +916,10 @@ export function parseStrategieSubMotions(rawText: string): {
         line.length < 120
       ) {
         const docHeadingTitle = line.split(/\s+[\-–]\s+/)[0].trim();
-        if (docHeadingTitle.length >= 5 && (!currentTargetMotionTitle || currentTargetMotionTitle.length < docHeadingTitle.length)) {
+        if (
+          docHeadingTitle.length >= 5 &&
+          (!currentTargetMotionTitle || currentTargetMotionTitle.length < docHeadingTitle.length)
+        ) {
           currentTargetMotionTitle = docHeadingTitle;
         }
         continue;
@@ -873,7 +927,9 @@ export function parseStrategieSubMotions(rawText: string): {
     }
 
     // 2. Überschriften in Sammeldateien erkennen (z. B. "Antrag 1:", "Antrag 2", "TOP 3") -> Puffer abschließen!
-    const headerMatch = line.match(/^(?:strategie\s+(?:für|zu)\s+)?(?:haupt)?antrag\s*(\d+)[:.]?\s*(.*)$/i);
+    const headerMatch = line.match(
+      /^(?:strategie\s+(?:für|zu)\s+)?(?:haupt)?antrag\s*(\d+)[:.]?\s*(.*)$/i,
+    );
     if (headerMatch) {
       flushActiveBuffer();
       currentTargetMotionNumber = parseInt(headerMatch[1], 10);
@@ -911,7 +967,7 @@ export function parseStrategieSubMotions(rawText: string): {
       // Zeilen- oder Forderungspunktbezug ermitteln
       let lineOrParagraph: string | undefined;
       const fpMatch = (meta + ' ' + inlineText).match(
-        /(?:(?:zu\s+|zur\s+)?(?:fp|forderungspunkt|zeile|z\.)\s*\d+|§\s*\d+)/i
+        /(?:(?:zu\s+|zur\s+)?(?:fp|forderungspunkt|zeile|z\.)\s*\d+|§\s*\d+)/i,
       );
       if (fpMatch) {
         lineOrParagraph = fpMatch[0].replace(/^(?:zu|zur)\s+/i, '').trim();
@@ -921,7 +977,9 @@ export function parseStrategieSubMotions(rawText: string): {
 
       // Redner:in / Claim ermitteln (z.B. "(Simon)", "(Emma Battlogg)", "(Kaspar" oder "SA kathi:")
       let claimedBy: string | undefined;
-      const parenMatches = Array.from((meta + ' ' + inlineText.slice(0, 50)).matchAll(/\(([^)]+)\)?/g));
+      const parenMatches = Array.from(
+        (meta + ' ' + inlineText.slice(0, 50)).matchAll(/\(([^)]+)\)?/g),
+      );
       for (const m of parenMatches) {
         const rawCandidate = m[1]
           .replace(/\b(?:zu|zur)?\s*(?:fp|forderungspunkt)\s*\d+\b/gi, '')
@@ -943,7 +1001,12 @@ export function parseStrategieSubMotions(rawText: string): {
           .replace(/[\-!\s]+$/g, '')
           .replace(/^[\-!\s]+/g, '')
           .trim();
-        if (bareMeta && bareMeta.length >= 2 && bareMeta.length <= 25 && !isPlaceholderClaim(bareMeta)) {
+        if (
+          bareMeta &&
+          bareMeta.length >= 2 &&
+          bareMeta.length <= 25 &&
+          !isPlaceholderClaim(bareMeta)
+        ) {
           claimedBy = bareMeta;
         }
       }
@@ -968,13 +1031,13 @@ export function parseStrategieSubMotions(rawText: string): {
     if (
       /^(?:(?:sa\s+)?unterstützende\s+wm|wm\s+(?:zu|von)\s+|allgemein\s+zum\s+fp)\b/i.test(line) ||
       /^(?:mögliche\s+gegenargumente|wichtige\s+bildungspolitische\s+infos|auszug\s+aus\s+der\s+lbvo|rechtliche\s+grundlagen|hilfreiche\s+strategien)\b/i.test(
-        line
+        line,
       ) ||
       /^(?:antrags?steller(?:_?innen|_?in|:?innen|:?in)?|eingereicht\s*von|autor(?:_?in|:?in)?|antragstext|siehe\s+sip-?antragsmappe|strategie(?:\s*\(extern\))?|gegenwehr|info(?:rmation|s)?)\s*[:\-]/i.test(
-        line
+        line,
       ) ||
       /^(?:mögliche\s+df|interne\s+df|df|direktfrage|direkte\s+frage|mögliche\s+problemstellung|problem(?:stellung)?)\s*(?:\d+|\([^)]*\))?\s*[:\-]/i.test(
-        line
+        line,
       )
     ) {
       flushActiveBuffer();
@@ -1024,7 +1087,9 @@ export function parseStrategieText(rawText: string): {
         motionNumber: sm.targetMotionNumber,
         motionTitle:
           sm.targetMotionTitle ||
-          (sm.targetMotionNumber ? `Antrag ${sm.targetMotionNumber}` : 'Allgemeine Strategieanträge'),
+          (sm.targetMotionNumber
+            ? `Antrag ${sm.targetMotionNumber}`
+            : 'Allgemeine Strategieanträge'),
         subAntraege: [],
       };
       map.set(key, sec);
@@ -1049,7 +1114,7 @@ export function parseStrategieText(rawText: string): {
  */
 export function createHauptantraegeFromParsed(
   hauptAntraege: ParsedHauptAntrag[],
-  baseTimestamp: number = Date.now()
+  baseTimestamp: number = Date.now(),
 ): SipAntrag[] {
   return hauptAntraege.map((h, hIdx) => ({
     id: `antrag_${hIdx + 1}`,
@@ -1079,7 +1144,7 @@ export function createHauptantraegeFromParsed(
 export function createNebenantraegeFromExtracted(
   subMotions: ExtractedSubMotion[],
   hauptantraege: SipAntrag[] = [],
-  baseTimestamp: number = Date.now()
+  baseTimestamp: number = Date.now(),
 ): {
   nebenantraege: SipAntrag[];
   matchedSectionsCount: number;
@@ -1107,7 +1172,7 @@ export function createNebenantraegeFromExtracted(
       // Priorität 2: Über Antragsnummer
       if (!parent && sub.targetMotionNumber !== undefined) {
         parent = hauptantraege.find(
-          (h, hIdx) => (h.targetMotionNumber ?? hIdx + 1) === sub.targetMotionNumber
+          (h, hIdx) => (h.targetMotionNumber ?? hIdx + 1) === sub.targetMotionNumber,
         );
       }
       if (parent) {
@@ -1119,7 +1184,8 @@ export function createNebenantraegeFromExtracted(
 
     const parentId = parent?.id;
     const parentOrderIndex = parent?.orderIndex ?? 0;
-    const parentKey = parentId || sub.targetMotionTitle || `unlinked_${sub.targetMotionNumber ?? 0}`;
+    const parentKey =
+      parentId || sub.targetMotionTitle || `unlinked_${sub.targetMotionNumber ?? 0}`;
     const subIdx = (subCounterPerParent[parentKey] || 0) + 1;
     subCounterPerParent[parentKey] = subIdx;
 
@@ -1155,7 +1221,7 @@ export function createNebenantraegeFromExtracted(
 export function mergeHauptAndNebenantraege(
   hauptantraegeInput: SipAntrag[],
   nebenantraegeInput: SipAntrag[],
-  baseTimestamp: number = Date.now()
+  baseTimestamp: number = Date.now(),
 ): {
   finalMotions: SipAntrag[];
   hauptantraege: SipAntrag[];
@@ -1193,7 +1259,7 @@ export function mergeHauptAndNebenantraege(
       }
       if (!parent && sub.targetMotionNumber !== undefined) {
         parent = hauptantraege.find(
-          (h, hIdx) => (h.targetMotionNumber ?? hIdx + 1) === sub.targetMotionNumber
+          (h, hIdx) => (h.targetMotionNumber ?? hIdx + 1) === sub.targetMotionNumber,
         );
       }
       if (parent) {
@@ -1214,13 +1280,14 @@ export function mergeHauptAndNebenantraege(
       ...sub,
       id: parentId ? `${parentId}_sub_${subIdx}` : sub.id || `antrag_sub_${idx + 1}`,
       parentAntragId: parentId,
-      orderIndex: parentId ? parentOrderIndex + subIdx / 1000 : sub.orderIndex ?? idx / 1000,
+      orderIndex: parentId ? parentOrderIndex + subIdx / 1000 : (sub.orderIndex ?? idx / 1000),
       content: fullText,
       text: fullText,
       lineOrParagraph: sub.lineOrParagraph || parent?.lineOrParagraph,
       isPreFab: false,
       createdAt:
-        sub.createdAt || new Date(baseTimestamp + parentOrderIndex * 1000 + subIdx * 100).toISOString(),
+        sub.createdAt ||
+        new Date(baseTimestamp + parentOrderIndex * 1000 + subIdx * 100).toISOString(),
     };
   });
 
@@ -1231,7 +1298,7 @@ export function mergeHauptAndNebenantraege(
     'Nebenanträge:',
     nebenantraege.length,
     'Gesamt:',
-    finalMotions.length
+    finalMotions.length,
   );
 
   return {
@@ -1248,7 +1315,7 @@ export function mergeHauptAndNebenantraege(
 export function combineAntragsmappeAndStrategie(
   antragsmappeText: string,
   strategieText: string,
-  baseTimestamp: number = Date.now()
+  baseTimestamp: number = Date.now(),
 ): {
   antraege: SipAntrag[];
   hauptantraege: SipAntrag[];
@@ -1268,18 +1335,20 @@ export function combineAntragsmappeAndStrategie(
 
   // 2. Array aus dem DOCX-Parser liefert alle Nebenanträge und Wortmeldungen (Buffer-Pattern)
   const { subMotions, generalStrategyNotes } = parseStrategieSubMotions(strategieText);
-  console.log(`[DOCX-PARSER] Anzahl gefundener Nebenanträge/Wortmeldungen aus DOCX: ${subMotions.length}`);
+  console.log(
+    `[DOCX-PARSER] Anzahl gefundener Nebenanträge/Wortmeldungen aus DOCX: ${subMotions.length}`,
+  );
   const { nebenantraege: rawNebenantraege } = createNebenantraegeFromExtracted(
     subMotions,
     hauptantraege,
-    baseTimestamp
+    baseTimestamp,
   );
 
   // 3. Expliziter Merge-Schritt
   const { finalMotions, nebenantraege, matchedSectionsCount } = mergeHauptAndNebenantraege(
     hauptantraege,
     rawNebenantraege,
-    baseTimestamp
+    baseTimestamp,
   );
 
   return {
@@ -1306,8 +1375,12 @@ export function classifySiPFolderFiles(files: File[] | FileList): {
   antragsmappeFile?: File;
   strategieFiles: File[];
   unrecognizedFiles: File[];
+  goFileFile?: File;
 } {
   const fileArray = Array.from(files);
+  const goFileFile = fileArray.find(
+    (file) => file.name.includes('GO') && /\.pdf$/i.test(file.name),
+  );
   let antragsmappeFile: File | undefined;
   const strategieFiles: File[] = [];
   const unrecognizedFiles: File[] = [];
@@ -1315,13 +1388,18 @@ export function classifySiPFolderFiles(files: File[] | FileList): {
   // 1. Suche nach der Antragsmappe: Name enthält "antragsmappe" und endet mit ".pdf"
   antragsmappeFile = fileArray.find((f) => {
     const name = f.name.normalize('NFC').toLowerCase();
-    return name.includes('antragsmappe') && name.endsWith('.pdf') && !name.includes('kommentierung');
+    return (
+      f !== goFileFile &&
+      name.includes('antragsmappe') &&
+      name.endsWith('.pdf') &&
+      !name.includes('kommentierung')
+    );
   });
 
   if (!antragsmappeFile) {
     antragsmappeFile = fileArray.find((f) => {
       const name = f.name.normalize('NFC').toLowerCase();
-      return name.includes('antragsmappe') && name.endsWith('.pdf');
+      return f !== goFileFile && name.includes('antragsmappe') && name.endsWith('.pdf');
     });
   }
 
@@ -1329,13 +1407,17 @@ export function classifySiPFolderFiles(files: File[] | FileList): {
   if (!antragsmappeFile) {
     antragsmappeFile = fileArray.find((f) => {
       const relPath = (f.webkitRelativePath || f.name).normalize('NFC').toLowerCase();
-      return f.name.toLowerCase().endsWith('.pdf') && !relPath.includes('/strategie/');
+      return (
+        f !== goFileFile &&
+        f.name.toLowerCase().endsWith('.pdf') &&
+        !relPath.includes('/strategie/')
+      );
     });
   }
 
   // 2. Suche nach Strategiedateien (Unterordner "Strategie", Name mit "strategie" oder DOCX/TXT)
   for (const f of fileArray) {
-    if (f === antragsmappeFile) continue;
+    if (f === antragsmappeFile || f === goFileFile) continue;
     const name = f.name.normalize('NFC').toLowerCase();
     const relPath = (f.webkitRelativePath || f.name).normalize('NFC').toLowerCase();
 
@@ -1363,7 +1445,7 @@ export function classifySiPFolderFiles(files: File[] | FileList): {
     }
   }
 
-  return { antragsmappeFile, strategieFiles, unrecognizedFiles };
+  return { antragsmappeFile, strategieFiles, unrecognizedFiles, goFileFile };
 }
 
 /**
@@ -1371,7 +1453,7 @@ export function classifySiPFolderFiles(files: File[] | FileList): {
  */
 async function extractTextFromSingleStrategieFile(
   file: File | ArrayBuffer,
-  fileName: string = ''
+  fileName: string = '',
 ): Promise<string> {
   let text = '';
   const lowerName = fileName.toLowerCase();
@@ -1416,6 +1498,7 @@ export interface AutoImportOptions {
   strategieFile?: File | ArrayBuffer;
   strategieFiles?: (File | ArrayBuffer)[];
   strategieText?: string;
+  goFile?: File;
   onProgress?: AutoImportProgressCallback;
 }
 
@@ -1431,6 +1514,7 @@ export async function executeAutoSiPImport(options: AutoImportOptions): Promise<
   let finalStrategieText = options.strategieText || '';
 
   let targetAntragsmappe = options.antragsmappeFile;
+  let targetGoFile = options.goFile;
   const targetStrategieFiles: (File | ArrayBuffer)[] = [];
 
   options.onProgress?.({
@@ -1445,6 +1529,9 @@ export async function executeAutoSiPImport(options: AutoImportOptions): Promise<
     }
     if (classified.strategieFiles.length > 0) {
       targetStrategieFiles.push(...classified.strategieFiles);
+    }
+    if (!targetGoFile && classified.goFileFile) {
+      targetGoFile = classified.goFileFile;
     }
   }
 
@@ -1490,8 +1577,7 @@ export async function executeAutoSiPImport(options: AutoImportOptions): Promise<
     }
     if (extractedSections.length > 0) {
       finalStrategieText =
-        (finalStrategieText ? `${finalStrategieText}\n\n` : '') +
-        extractedSections.join('\n\n');
+        (finalStrategieText ? `${finalStrategieText}\n\n` : '') + extractedSections.join('\n\n');
     }
   }
 
@@ -1545,6 +1631,7 @@ export async function executeAutoSiPImport(options: AutoImportOptions): Promise<
     hauptantraege: combined.hauptantraege,
     nebenantraege: combined.nebenantraege,
     strategyNotes: combined.strategyNotes,
+    localGoFile: targetGoFile ?? null,
     summary: {
       ...combined.summary,
       strategyFilesCount: targetStrategieFiles.length,

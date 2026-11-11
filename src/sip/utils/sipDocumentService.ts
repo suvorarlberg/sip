@@ -8,7 +8,7 @@ export const SIP_DOCUMENTS_COLLECTION = 'sip_documents';
  */
 export async function uploadSipDocument(options: {
   file: File;
-  docType: 'antragsmappe' | 'strategie' | 'general';
+  docType: 'antragsmappe' | 'strategie' | 'general' | 'go';
   sessionId: string;
   title?: string;
 }): Promise<SipUploadedDocument> {
@@ -41,7 +41,9 @@ export async function uploadSipDocument(options: {
     }
   }
 
-  const fileUrl = pb.files.getUrl(record, record.file) || `${POCKETBASE_URL}/api/files/${SIP_DOCUMENTS_COLLECTION}/${record.id}/${record.file}`;
+  const fileUrl =
+    pb.files.getUrl(record, record.file) ||
+    `${POCKETBASE_URL}/api/files/${SIP_DOCUMENTS_COLLECTION}/${record.id}/${record.file}`;
 
   return {
     id: record.id,
@@ -67,7 +69,9 @@ export async function fetchSipDocuments(sessionId?: string): Promise<SipUploaded
     });
 
     return records.map((r: any) => {
-      const fileUrl = pb.files.getUrl(r, r.file) || `${POCKETBASE_URL}/api/files/${SIP_DOCUMENTS_COLLECTION}/${r.id}/${r.file}`;
+      const fileUrl =
+        pb.files.getUrl(r, r.file) ||
+        `${POCKETBASE_URL}/api/files/${SIP_DOCUMENTS_COLLECTION}/${r.id}/${r.file}`;
       return {
         id: r.id,
         title: r.title || 'Dokument',
