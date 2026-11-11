@@ -58,7 +58,21 @@ export const App: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEYS.LOGGED_USER);
       if (saved) {
         const acc = JSON.parse(saved) as MemberAccount;
-        if (!isAccountExpired(acc)) return acc;
+        const normalizedUsername = normalizeUsernameForComparison(acc.username);
+        const isDeleted = (settings.deletedUsernames ?? []).some(
+          (username) => normalizeUsernameForComparison(username) === normalizedUsername,
+        );
+
+        if (isDeleted) return null;
+
+        const currentAccount =
+          settings.memberAccounts.find(
+            (item) => normalizeUsernameForComparison(item.username) === normalizedUsername,
+          ) ?? acc;
+
+        if (!currentAccount.isDisabled && !isAccountExpired(currentAccount)) {
+          return currentAccount;
+        }
       }
     } catch (loadUserErr) {}
     return null;
@@ -332,13 +346,22 @@ export const App: React.FC = () => {
     const matched = settings.memberAccounts.find(
       (a) => normalizeUsernameForComparison(a.username) === normCurrent,
     );
+    const isDeleted = (settings.deletedUsernames ?? []).some(
+      (username) => normalizeUsernameForComparison(username) === normCurrent,
+    );
+
+    if (isDeleted || matched?.isDisabled) {
+      handleLogout();
+      return;
+    }
     if (matched) {
       if (
         matched.role !== currentUser.role ||
         matched.name !== currentUser.name ||
         matched.expiresAt !== currentUser.expiresAt ||
         matched.password !== currentUser.password ||
-        matched.isExternal !== currentUser.isExternal
+        matched.isExternal !== currentUser.isExternal ||
+        matched.isDisabled !== currentUser.isDisabled
       ) {
         setCurrentUser(matched);
         try {
@@ -346,8 +369,7 @@ export const App: React.FC = () => {
         } catch (e) {}
       }
     }
-  }, [settings.memberAccounts, currentUser]);
-
+  }, [settings.memberAccounts, settings.deletedUsernames, currentUser]);
   // Initialisiere SiP-Realtime sofort beim Start der App (lädt currentsession0 sofort aus PocketBase)
   useEffect(() => {
     sipRealtime.init(settings);
@@ -539,9 +561,19 @@ export const App: React.FC = () => {
   }
 
   function handleLoginSuccess(account: MemberAccount, unlockAdmin?: boolean) {
-    setCurrentUser(account);
-    localStorage.setItem(STORAGE_KEYS.LOGGED_USER, JSON.stringify(account));
-    if (unlockAdmin || account.role === 'admin') {
+    const currentAccount =
+      settings.memberAccounts.find(
+        (item) =>
+          normalizeUsernameForComparison(item.username) ===
+          normalizeUsernameForComparison(account.username),
+      ) ?? account;
+
+    if (currentAccount.isDisabled || isAccountExpired(currentAccount)) return;
+
+    setCurrentUser(currentAccount);
+    localStorage.setItem(STORAGE_KEYS.LOGGED_USER, JSON.stringify(currentAccount));
+
+    if (unlockAdmin || currentAccount.role === 'admin') {
       setIsAdminUnlocked(true);
       localStorage.setItem(STORAGE_KEYS.ADMIN_UNLOCKED, 'true');
     }

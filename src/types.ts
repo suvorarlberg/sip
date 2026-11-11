@@ -5,8 +5,10 @@ export interface MemberAccount {
   role?: 'mitglied' | 'gast' | 'presse' | 'strategie' | 'admin';
   isExternal?: boolean;
   isInternal?: boolean;
-  /** ISO-String wenn der Zugang zeitlich begrenzt ist, ansonsten null/undefined */
+  /** ISO-String, wenn der Zugang zeitlich begrenzt ist */
   expiresAt?: string | null;
+  /** Deaktivierte Konten dürfen sich nicht anmelden. */
+  isDisabled?: boolean;
   createdAt?: string;
   notes?: string;
 }

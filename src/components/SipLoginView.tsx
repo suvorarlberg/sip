@@ -12,11 +12,7 @@ import {
   ShieldCheck,
   CheckCircle2,
 } from 'lucide-react';
-import {
-  isAccountExpired,
-  MemberAccount,
-  normalizeUsernameForComparison,
-} from '../types';
+import { isAccountExpired, MemberAccount, normalizeUsernameForComparison } from '../types';
 import suLogo from '../assets/su-logo.png';
 import { verifyTotpCode, verifyAndConsumeBackupCode } from '../utils/totp';
 
@@ -41,7 +37,9 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
   onConsumeBackupCode,
   onLoginSuccess,
 }) => {
-  const [stage, setStage] = useState<'credentials' | 'admin_totp' | 'admin_backup_code'>('credentials');
+  const [stage, setStage] = useState<'credentials' | 'admin_totp' | 'admin_backup_code'>(
+    'credentials',
+  );
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -55,13 +53,15 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
   const matchingSuggestions = useMemo(() => {
     const q = usernameInput.trim().toLowerCase();
     if (!q) return [];
-    const exactMatch = memberAccounts.some((acc) => acc.username.toLowerCase() === q);
+
+    const activeAccounts = memberAccounts.filter((account) => !account.isDisabled);
+    const exactMatch = activeAccounts.some((account) => account.username.toLowerCase() === q);
     if (exactMatch) return [];
-    return memberAccounts
+
+    return activeAccounts
       .filter(
-        (acc) =>
-          acc.username.toLowerCase().includes(q) ||
-          acc.name.toLowerCase().includes(q)
+        (account) =>
+          account.username.toLowerCase().includes(q) || account.name.toLowerCase().includes(q),
       )
       .slice(0, 5);
   }, [usernameInput, memberAccounts]);
@@ -100,7 +100,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
             password: rawPass,
             role: 'admin',
           },
-          true
+          true,
         );
         return;
       }
@@ -110,7 +110,8 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
 
     // 1. Eigener Strategieführung-Systemaccount (optional)
     if (lowerUser === 'strategieführung' || lowerUser === 'strategie' || lowerUser === 'leitung') {
-      const validStratPass = strategiePassword && strategiePassword !== 'admin' ? strategiePassword : 'strategie2026';
+      const validStratPass =
+        strategiePassword && strategiePassword !== 'admin' ? strategiePassword : 'strategie2026';
       if (rawPass === validStratPass) {
         onLoginSuccess({
           name: 'Strategieführung',
@@ -131,7 +132,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
     const matchedAccount = memberAccounts.find(
       (acc) =>
         normalizeUsernameForComparison(acc.username) === normalizedInput ||
-        acc.name.toLowerCase() === lowerUser
+        acc.name.toLowerCase() === lowerUser,
     );
 
     if (!matchedAccount) {
@@ -146,7 +147,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
         timeStyle: 'short',
       });
       setErrorMsg(
-        `Dieser Gastzugang ist am ${expDate} Uhr abgelaufen. Bitte wende dich an die Administration für eine Verlängerung.`
+        `Dieser Gastzugang ist am ${expDate} Uhr abgelaufen. Bitte wende dich an die Administration für eine Verlängerung.`,
       );
       return;
     }
@@ -154,6 +155,11 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
     // Passwort-Vergleich
     if (matchedAccount.password !== rawPass) {
       setErrorMsg('ungültiger Benutzername oder Passwort, bitte versuche es erneut');
+      return;
+    }
+
+    if (matchedAccount.isDisabled) {
+      setErrorMsg('Dieser Account wurde deaktiviert. Bitte wende dich an die Administration.');
       return;
     }
 
@@ -180,7 +186,9 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
     try {
       const valid = await verifyTotpCode(totpSecret, clean);
       if (!valid) {
-        setErrorMsg('Ungültiger 6-stelliger Code. Bitte überprüfe die Authenticator-App und versuche es erneut.');
+        setErrorMsg(
+          'Ungültiger 6-stelliger Code. Bitte überprüfe die Authenticator-App und versuche es erneut.',
+        );
         return;
       }
 
@@ -191,7 +199,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
           password: passwordInput || adminPassword,
           role: 'admin',
         },
-        true
+        true,
       );
     } finally {
       setIsVerifying(false);
@@ -210,7 +218,9 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
 
     const verification = verifyAndConsumeBackupCode(clean, totpBackupCodes);
     if (!verification.valid || !verification.usedCode) {
-      setErrorMsg('Ungültiger oder bereits verbrauchter Notfallcode. Bitte überprüfe deine Notfall-Liste.');
+      setErrorMsg(
+        'Ungültiger oder bereits verbrauchter Notfallcode. Bitte überprüfe deine Notfall-Liste.',
+      );
       return;
     }
 
@@ -219,7 +229,9 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
       if (onConsumeBackupCode) {
         await onConsumeBackupCode(verification.usedCode);
       }
-      setSuccessNotice(`Notfallcode eingelöst! Noch ${verification.remainingCodes.length} Ersatzcodes übrig.`);
+      setSuccessNotice(
+        `Notfallcode eingelöst! Noch ${verification.remainingCodes.length} Ersatzcodes übrig.`,
+      );
       setTimeout(() => {
         onLoginSuccess(
           {
@@ -228,7 +240,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
             password: adminPassword,
             role: 'admin',
           },
-          true
+          true,
         );
       }, 600);
     } finally {
@@ -255,12 +267,8 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
           <span className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-1">
             Schüler:innenparlament
           </span>
-          <h1 className="text-2xl font-black text-white">
-            SiP Live-Tool Login
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Melde dich mit deinen Zugangsdaten an
-          </p>
+          <h1 className="text-2xl font-black text-white">SiP Live-Tool Login</h1>
+          <p className="text-xs text-slate-400 mt-1">Melde dich mit deinen Zugangsdaten an</p>
         </div>
 
         {errorMsg && (
@@ -329,9 +337,7 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
 
             {/* Password Input */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Passwort
-              </label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Passwort</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <Lock className="w-4 h-4" />
@@ -388,7 +394,8 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
               </div>
               <h3 className="text-sm font-bold text-white">Zwei-Faktor-Authentifizierung (2FA)</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Gib den aktuellen 6-stelligen Bestätigungscode aus deiner <strong>Authenticator-App</strong> ein:
+                Gib den aktuellen 6-stelligen Bestätigungscode aus deiner{' '}
+                <strong>Authenticator-App</strong> ein:
               </p>
             </div>
 
@@ -449,10 +456,12 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
                 <span>Admin-Notfallzugang</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Gib einen deiner 10 Notfallcodes ein. Jeder Code kann genau einmal genutzt werden, falls du dein Passwort oder dein Handy verloren hast.
+                Gib einen deiner 10 Notfallcodes ein. Jeder Code kann genau einmal genutzt werden,
+                falls du dein Passwort oder dein Handy verloren hast.
               </p>
               <div className="text-[11px] text-slate-400 font-mono pt-1">
-                Verbleibende Notfallcodes: <strong className="text-white">{totpBackupCodes.length}</strong> von 10
+                Verbleibende Notfallcodes:{' '}
+                <strong className="text-white">{totpBackupCodes.length}</strong> von 10
               </div>
             </div>
 
@@ -477,7 +486,9 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/25 transition cursor-pointer flex items-center justify-center gap-2"
             >
               <KeyRound className="w-4 h-4" />
-              <span>{isVerifying ? 'Prüfe Notfallcode...' : 'Mit Notfallcode als Admin anmelden'}</span>
+              <span>
+                {isVerifying ? 'Prüfe Notfallcode...' : 'Mit Notfallcode als Admin anmelden'}
+              </span>
             </button>
 
             <div className="pt-2 text-center border-t border-slate-800/60">
@@ -498,11 +509,10 @@ export const SipLoginView: React.FC<SipLoginViewProps> = ({
 
         <div className="mt-6 pt-4 border-t border-slate-800/80 text-center space-y-2">
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            Zugangsdaten vergessen oder externer Gast? Wende dich an die <strong>Strategieführung</strong> im Plenum.
+            Zugangsdaten vergessen oder externer Gast? Wende dich an die{' '}
+            <strong>Strategieführung</strong> im Plenum.
           </p>
-          <p className="text-[11px] text-slate-500 font-medium">
-            © Elias Mathis
-          </p>
+          <p className="text-[11px] text-slate-500 font-medium">© Elias Mathis</p>
         </div>
       </div>
     </div>
