@@ -67,13 +67,41 @@ export type SipRealtimeMessage =
   | { type: 'CONFIG_SYNC'; settings: AppSettings }
   | { type: 'NEW_ACTIVE_ANTRAG'; antragId: string; antrag: SipAntrag; updatedAt?: string }
   | { type: 'VOTE_REC_CHANGED'; recommendation: VoteRecommendation; updatedAt?: string }
-  | { type: 'ANTRAG_CLAIMED'; antragId: string; antragTitle: string; claimedBy: string; claimedAt?: string }
-  | { type: 'ANTRAG_UNCLAIMED'; antragId: string; antragTitle: string; unclaimedBy: string; updatedAt?: string }
+  | {
+      type: 'ANTRAG_CLAIMED';
+      antragId: string;
+      antragTitle: string;
+      claimedBy: string;
+      claimedAt?: string;
+    }
+  | {
+      type: 'ANTRAG_UNCLAIMED';
+      antragId: string;
+      antragTitle: string;
+      unclaimedBy: string;
+      updatedAt?: string;
+    }
   | { type: 'ANTRAG_SUBMITTED'; antrag: SipAntrag; updatedAt?: string }
   | { type: 'ANTRAG_APPROVED'; antrag: SipAntrag; updatedAt?: string }
-  | { type: 'ANTRAG_DECIDED'; antragId: string; decision: 'ANGENOMMEN' | 'ABGELEHNT'; decidedAt: string | null }  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string }
-  | { type: 'DIRECT_MESSAGE_PUBLISHED'; message: SipDirectMessage; directMessages: SipDirectMessage[]; updatedAt?: string }
-  | { type: 'DIRECT_MESSAGE_UPDATED'; directMessages: SipDirectMessage[]; activeDirectMessage: SipDirectMessage | null; updatedAt?: string };
+  | {
+      type: 'ANTRAG_DECIDED';
+      antragId: string;
+      decision: 'ANGENOMMEN' | 'ABGELEHNT';
+      decidedAt: string | null;
+    }
+  | { type: 'MEME_ADDED'; meme: SipMeme; updatedAt?: string }
+  | {
+      type: 'DIRECT_MESSAGE_PUBLISHED';
+      message: SipDirectMessage;
+      directMessages: SipDirectMessage[];
+      updatedAt?: string;
+    }
+  | {
+      type: 'DIRECT_MESSAGE_UPDATED';
+      directMessages: SipDirectMessage[];
+      activeDirectMessage: SipDirectMessage | null;
+      updatedAt?: string;
+    };
 
 class SipRealtimeService {
   private localChannel: BroadcastChannel | null = null;
@@ -174,7 +202,8 @@ class SipRealtimeService {
             if (
               parsedOverlay &&
               parsedOverlay.updatedAt &&
-              parsePbTimestamp(parsedOverlay.updatedAt) > parsePbTimestamp(this.currentSession.updatedAt)
+              parsePbTimestamp(parsedOverlay.updatedAt) >
+                parsePbTimestamp(this.currentSession.updatedAt)
             ) {
               this.applyLiveOverlay(parsedOverlay, undefined, false);
             }
@@ -231,14 +260,15 @@ class SipRealtimeService {
     }
 
     const customAntraege = (session.antraege || []).filter(
-      (a) => !a.isPreFab && a.id.startsWith('antrag_custom_')
+      (a) => !a.isPreFab && a.id.startsWith('antrag_custom_'),
     );
 
     return {
       sessionId: session.id,
       title: session.title,
       driveFolderUrl: session.driveFolderUrl || '',
-      strategyNotes: (session.strategyNotes || '').length < 15000 ? session.strategyNotes : undefined,
+      strategyNotes:
+        (session.strategyNotes || '').length < 15000 ? session.strategyNotes : undefined,
       activeAntragId: session.activeAntragId || null,
       voteRecommendation: session.voteRecommendation,
       motionPatches,
@@ -254,21 +284,21 @@ class SipRealtimeService {
 
   private mergeOverlayIntoSession(
     baseSession: SipSession,
-    overlay: SipLiveStateOverlay
+    overlay: SipLiveStateOverlay,
   ): SipSession {
     if (!overlay || typeof overlay !== 'object') return baseSession;
 
     const deletedSet = new Set<string>(
-      Array.isArray(overlay.deletedAntragIds) ? overlay.deletedAntragIds : []
+      Array.isArray(overlay.deletedAntragIds) ? overlay.deletedAntragIds : [],
     );
     deletedSet.forEach((id) => this.deletedAntragIds.add(id));
 
     const baseAntraege = (baseSession.antraege || []).filter((a) => !deletedSet.has(a.id));
     const baseIds = new Set(baseAntraege.map((a) => a.id));
 
-    const newCustomAntraege = (Array.isArray(overlay.customAntraege) ? overlay.customAntraege : []).filter(
-      (c) => c && c.id && !deletedSet.has(c.id) && !baseIds.has(c.id)
-    );
+    const newCustomAntraege = (
+      Array.isArray(overlay.customAntraege) ? overlay.customAntraege : []
+    ).filter((c) => c && c.id && !deletedSet.has(c.id) && !baseIds.has(c.id));
 
     const customMap = new Map<string, SipAntrag>();
     if (Array.isArray(overlay.customAntraege)) {
@@ -346,7 +376,7 @@ class SipRealtimeService {
   private applyLiveOverlay(
     overlay: SipLiveStateOverlay,
     recordUpdated?: string,
-    forceOverwrite = false
+    forceOverwrite = false,
   ) {
     if (!overlay || typeof overlay !== 'object') return;
     if (
@@ -374,7 +404,15 @@ class SipRealtimeService {
 
   private toCompactSession(session: SipSession): SipSession {
     const compactAntraege = (session.antraege || [])
-      .filter((a) => !a.isPreFab || a.claimedBy || a.isActive || a.id === session.activeAntragId || a.isEditedByAdmin || a.plenumResult)
+      .filter(
+        (a) =>
+          !a.isPreFab ||
+          a.claimedBy ||
+          a.isActive ||
+          a.id === session.activeAntragId ||
+          a.isEditedByAdmin ||
+          a.plenumResult,
+      )
       .map((a) => {
         if (a.isPreFab && !a.isEditedByAdmin) {
           const minimalPreFab: SipAntrag = {
@@ -419,7 +457,7 @@ class SipRealtimeService {
         session.antraege.length !== DEFAULT_SIP_SESSION.antraege.length ||
         session.antraege[0]?.title !== DEFAULT_SIP_SESSION.antraege[0]?.title);
     const isOriginalTemplate = session.id === 'currentsession0' && !hasImportedMotions;
-    
+
     if ((!isOriginalTemplate && session.id) || hasImportedMotions) {
       return {
         id: session.id || `session_${Date.now()}`,
@@ -435,6 +473,7 @@ class SipRealtimeService {
           isPublished: false,
         },
         antraege: session.antraege || [],
+        uploadedDocuments: session.uploadedDocuments || [],
         memes: session.memes || [],
         directMessages: session.directMessages || [],
         activeDirectMessage: session.activeDirectMessage || null,
@@ -445,7 +484,9 @@ class SipRealtimeService {
 
     const customAntraege = (session.antraege || [])
       .filter((a) => !a.isPreFab)
-      .map((a) => (a.id.includes('antrag_top_') ? { ...a, id: a.id.replace('antrag_top_', 'antrag_') } : a));
+      .map((a) =>
+        a.id.includes('antrag_top_') ? { ...a, id: a.id.replace('antrag_top_', 'antrag_') } : a,
+      );
 
     const existingClaims = new Map<
       string,
@@ -457,7 +498,7 @@ class SipRealtimeService {
         plenumResultAt?: string | null;
       }
     >();
-    
+
     (session.antraege || []).forEach((a) => {
       const cleanId = a.id.replace('antrag_top_', 'antrag_');
       if (a.claimedBy || a.isActive || a.plenumResult) {
@@ -519,9 +560,9 @@ class SipRealtimeService {
     const newDirectMsg = merged.activeDirectMessage;
     const isNewDirectMsg = Boolean(
       newDirectMsg &&
-        (!prevDirectMsg ||
-          prevDirectMsg.id !== newDirectMsg.id ||
-          prevDirectMsg.publishedAt !== newDirectMsg.publishedAt)
+      (!prevDirectMsg ||
+        prevDirectMsg.id !== newDirectMsg.id ||
+        prevDirectMsg.publishedAt !== newDirectMsg.publishedAt),
     );
 
     if (this.hasLoadedCloudSession && this.currentSession.antraege) {
@@ -573,7 +614,7 @@ class SipRealtimeService {
       const oldCustomIds = new Set(
         (this.currentSession.antraege || [])
           .filter((a) => !a.isPreFab && a.id.startsWith('antrag_custom_'))
-          .map((a) => a.id)
+          .map((a) => a.id),
       );
       merged.antraege
         .filter((a) => !a.isPreFab && a.id.startsWith('antrag_custom_'))
@@ -599,7 +640,10 @@ class SipRealtimeService {
           if (!oldA || oldA.plenumResult !== newA.plenumResult) {
             const decisionNotif: SipNotification = {
               id: `decision_${newA.id}_${newA.plenumResult}`,
-              title: newA.plenumResult === 'ANGENOMMEN' ? '🎉 Antrag angenommen!' : '❌ Antrag abgelehnt',
+              title:
+                newA.plenumResult === 'ANGENOMMEN'
+                  ? '🎉 Antrag angenommen!'
+                  : '❌ Antrag abgelehnt',
               message: `Antrag "${newA.title}" wurde vom Plenum ${newA.plenumResult === 'ANGENOMMEN' ? 'angenommen' : 'abgelehnt'}.`,
               type: newA.plenumResult === 'ANGENOMMEN' ? 'vote' : 'system',
               timestamp: new Date().toISOString(),
@@ -685,7 +729,10 @@ class SipRealtimeService {
             const pendingOverlay = JSON.parse(pendingRaw) as SipLiveStateOverlay;
             if (pendingOverlay && pendingOverlay.updatedAt) {
               this.latestLiveOverlay = pendingOverlay;
-              this.currentSession = this.mergeOverlayIntoSession(this.currentSession, pendingOverlay);
+              this.currentSession = this.mergeOverlayIntoSession(
+                this.currentSession,
+                pendingOverlay,
+              );
               this.notify();
               await this.syncLiveOverlayToPocketBase(pendingOverlay);
               void this.scheduleFullSessionSync(this.currentSession);
@@ -734,7 +781,7 @@ class SipRealtimeService {
             this.applyLiveOverlay(
               liveRecord.payload as SipLiveStateOverlay,
               liveRecord.updated || liveMeta.updated,
-              true
+              true,
             );
           }
         } catch (liveErr) {
@@ -749,10 +796,12 @@ class SipRealtimeService {
         parsePbTimestamp(configMeta.updated) > parsePbTimestamp(this.lastKnownConfigServerUpdated)
       ) {
         try {
-          const configRecord: any = await pb.collection(SIP_DATABASE_TABLE).getOne(SIP_CONFIG_ROW_ID, {
-            requestKey: null,
-            query: { _t: Date.now() },
-          });
+          const configRecord: any = await pb
+            .collection(SIP_DATABASE_TABLE)
+            .getOne(SIP_CONFIG_ROW_ID, {
+              requestKey: null,
+              query: { _t: Date.now() },
+            });
           if (configRecord && configRecord.payload) {
             this.lastKnownConfigServerUpdated = configRecord.updated || configMeta.updated;
             this.configListeners.forEach((cb) => {
@@ -772,7 +821,8 @@ class SipRealtimeService {
       if (
         sessionMeta &&
         sessionMeta.updated &&
-        parsePbTimestamp(sessionMeta.updated) > parsePbTimestamp(this.lastKnownSessionServerUpdated) &&
+        parsePbTimestamp(sessionMeta.updated) >
+          parsePbTimestamp(this.lastKnownSessionServerUpdated) &&
         !this.isSyncingToSupabase &&
         !this.isSyncingLiveOverlay &&
         Date.now() - this.lastLocalMutationAt >= 2500
@@ -999,7 +1049,8 @@ class SipRealtimeService {
         if (
           msg.session &&
           (!this.currentSession ||
-            parsePbTimestamp(msg.session.updatedAt) > parsePbTimestamp(this.currentSession.updatedAt))
+            parsePbTimestamp(msg.session.updatedAt) >
+              parsePbTimestamp(this.currentSession.updatedAt))
         ) {
           this.applyCloudSession(msg.session, false);
         }
@@ -1064,7 +1115,8 @@ class SipRealtimeService {
         const voteNotif: SipNotification = {
           id: `notif_${Date.now()}`,
           title: `🗳️ Abstimmungsempfehlung: ${msg.recommendation.type}`,
-          message: msg.recommendation.note || 'Die Strategieführung hat die Empfehlung aktualisiert.',
+          message:
+            msg.recommendation.note || 'Die Strategieführung hat die Empfehlung aktualisiert.',
           type: 'vote',
           timestamp: new Date().toISOString(),
         };
@@ -1077,9 +1129,7 @@ class SipRealtimeService {
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
-            a.id === msg.antragId
-              ? { ...a, claimedBy: msg.claimedBy, claimedAt: ts }
-              : a
+            a.id === msg.antragId ? { ...a, claimedBy: msg.claimedBy, claimedAt: ts } : a,
           ),
           updatedAt: ts,
         };
@@ -1101,7 +1151,7 @@ class SipRealtimeService {
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
-            a.id === msg.antragId ? { ...a, claimedBy: null, claimedAt: null } : a
+            a.id === msg.antragId ? { ...a, claimedBy: null, claimedAt: null } : a,
           ),
           updatedAt: ts,
         };
@@ -1136,7 +1186,7 @@ class SipRealtimeService {
         this.currentSession = {
           ...this.currentSession,
           antraege: this.currentSession.antraege.map((a) =>
-            a.id === msg.antrag.id ? msg.antrag : a
+            a.id === msg.antrag.id ? msg.antrag : a,
           ),
           updatedAt: ts,
         };
@@ -1155,7 +1205,7 @@ class SipRealtimeService {
                   plenumResult: msg.decision,
                   plenumResultAt: msg.decidedAt,
                 }
-              : a
+              : a,
           ),
           updatedAt,
         };
@@ -1221,7 +1271,7 @@ class SipRealtimeService {
       createdBy?: string;
       priority: DirectMessagePriority;
     },
-    settings?: AppSettings
+    settings?: AppSettings,
   ): Promise<SipDirectMessage> {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -1280,10 +1330,13 @@ class SipRealtimeService {
         activeDirectMessage: this.currentSession.activeDirectMessage || null,
         updatedAt: ts,
       },
-      settings
+      settings,
     );
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
     return savedMsg;
   }
 
@@ -1297,7 +1350,7 @@ class SipRealtimeService {
       publishedBy?: string;
       priority: DirectMessagePriority;
     },
-    settings?: AppSettings
+    settings?: AppSettings,
   ): Promise<SipDirectMessage> {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -1346,7 +1399,7 @@ class SipRealtimeService {
       set.add(`${publishedMsg.id}_${publishedMsg.publishedAt || publishedMsg.updatedAt}`);
       localStorage.setItem(
         'sip_dismissed_direct_messages_v1',
-        JSON.stringify(Array.from(set).slice(-50))
+        JSON.stringify(Array.from(set).slice(-50)),
       );
     } catch (e) {}
 
@@ -1372,10 +1425,13 @@ class SipRealtimeService {
         directMessages: nextList,
         updatedAt: ts,
       },
-      settings
+      settings,
     );
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
     return publishedMsg;
   }
 
@@ -1383,7 +1439,7 @@ class SipRealtimeService {
     messageId: string,
     author: string,
     settings?: AppSettings,
-    publishedBy?: string
+    publishedBy?: string,
   ): Promise<SipDirectMessage | null> {
     const existing = (this.currentSession.directMessages || []).find((m) => m.id === messageId);
     if (!existing) return null;
@@ -1397,7 +1453,7 @@ class SipRealtimeService {
         publishedBy: publishedBy || author || existing.author,
         priority: existing.priority,
       },
-      settings
+      settings,
     );
   }
 
@@ -1426,10 +1482,13 @@ class SipRealtimeService {
         activeDirectMessage: nextActive,
         updatedAt: ts,
       },
-      settings
+      settings,
     );
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async clearActiveDirectMessage(settings?: AppSettings): Promise<void> {
@@ -1450,10 +1509,13 @@ class SipRealtimeService {
         activeDirectMessage: null,
         updatedAt: ts,
       },
-      settings
+      settings,
     );
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public logActivity(entry: Omit<SipActivityLogEntry, 'id' | 'timestamp'>) {
@@ -1519,7 +1581,10 @@ class SipRealtimeService {
     };
     this.broadcastMessage(msg, settings);
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async clearActiveAntrag(settings?: AppSettings) {
@@ -1555,13 +1620,16 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async decideAntrag(
     antragId: string,
     decision: 'ANGENOMMEN' | 'ABGELEHNT',
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     const updatedAt = this.nextTimestamp();
@@ -1578,9 +1646,7 @@ class SipRealtimeService {
     this.currentSession = {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) =>
-        a.id === antragId
-          ? { ...a, plenumResult: decision, plenumResultAt: null }
-          : a
+        a.id === antragId ? { ...a, plenumResult: decision, plenumResultAt: null } : a,
       ),
       updatedAt,
     };
@@ -1597,14 +1663,11 @@ class SipRealtimeService {
 
     await this.syncSessionToSupabase(
       settings || this.cachedSettings || undefined,
-      this.currentSession
+      this.currentSession,
     );
   }
 
-  public async startAntragCloseTimer(
-    antragId: string,
-    settings?: AppSettings
-  ): Promise<void> {
+  public async startAntragCloseTimer(antragId: string, settings?: AppSettings): Promise<void> {
     this.lastLocalMutationAt = Date.now();
     const target = this.currentSession.antraege.find((a) => a.id === antragId);
     if (!target?.plenumResult) return;
@@ -1613,7 +1676,7 @@ class SipRealtimeService {
     this.currentSession = {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) =>
-        a.id === antragId ? { ...a, plenumResultAt: startedAt } : a
+        a.id === antragId ? { ...a, plenumResultAt: startedAt } : a,
       ),
       updatedAt: startedAt,
     };
@@ -1627,13 +1690,13 @@ class SipRealtimeService {
     this.broadcastMessage(msg, settings);
     await this.syncSessionToSupabase(
       settings || this.cachedSettings || undefined,
-      this.currentSession
+      this.currentSession,
     );
   }
 
   public async setVoteRecommendation(
     rec: Omit<VoteRecommendation, 'updatedAt'>,
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -1672,7 +1735,10 @@ class SipRealtimeService {
       recommendation: fullRec,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async claimAntrag(antragId: string, memberName: string, settings?: AppSettings) {
@@ -1692,7 +1758,7 @@ class SipRealtimeService {
     this.currentSession = {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) =>
-        a.id === antragId ? { ...a, claimedBy: memberName, claimedAt } : a
+        a.id === antragId ? { ...a, claimedBy: memberName, claimedAt } : a,
       ),
       updatedAt: claimedAt,
     };
@@ -1715,7 +1781,10 @@ class SipRealtimeService {
       claimedBy: memberName,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async unclaimAntrag(antragId: string, memberName: string, settings?: AppSettings) {
@@ -1734,7 +1803,7 @@ class SipRealtimeService {
     this.currentSession = {
       ...this.currentSession,
       antraege: this.currentSession.antraege.map((a) =>
-        a.id === antragId ? { ...a, claimedBy: null, claimedAt: null } : a
+        a.id === antragId ? { ...a, claimedBy: null, claimedAt: null } : a,
       ),
       updatedAt: this.nextTimestamp(),
     };
@@ -1748,12 +1817,15 @@ class SipRealtimeService {
       unclaimedBy: memberName,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public submitCustomAntrag(
     antragData: Omit<SipAntrag, 'id' | 'isPreFab' | 'status' | 'createdAt'>,
-    settings?: AppSettings
+    settings?: AppSettings,
   ): SipAntrag {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -1763,16 +1835,8 @@ class SipRealtimeService {
       isPreFab: false,
       status: 'pending_approval',
       createdAt: ts,
-            claimedBy:
-        antragData.claimedBy !== undefined
-          ? antragData.claimedBy
-          : antragData.author,
-      claimedAt:
-        antragData.claimedBy !== undefined
-          ? antragData.claimedBy
-            ? ts
-            : null
-          : ts,
+      claimedBy: antragData.claimedBy !== undefined ? antragData.claimedBy : antragData.author,
+      claimedAt: antragData.claimedBy !== undefined ? (antragData.claimedBy ? ts : null) : ts,
     };
 
     this.logActivity({
@@ -1796,7 +1860,10 @@ class SipRealtimeService {
       antrag: newAntrag,
     };
     this.broadcastMessage(msg, settings);
-    void this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    void this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
 
     return newAntrag;
   }
@@ -1804,7 +1871,7 @@ class SipRealtimeService {
   public async updateOrApproveAntrag(
     antragId: string,
     updates: Partial<SipAntrag>,
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -1834,8 +1901,18 @@ class SipRealtimeService {
     };
 
     if (updatedObj) {
-      const actAction = updates.status === 'approved' ? 'ANTRAG_APPROVED' : updates.status === 'rejected' ? 'ANTRAG_REJECTED' : 'ANTRAG_EDITED';
-      const actDetail = updates.status === 'approved' ? `Antrag "${(updatedObj as SipAntrag).title}" bestätigt & freigegeben` : updates.status === 'rejected' ? `Antrag "${(updatedObj as SipAntrag).title}" abgelehnt` : `Antrag "${(updatedObj as SipAntrag).title}" redaktionell bearbeitet`;
+      const actAction =
+        updates.status === 'approved'
+          ? 'ANTRAG_APPROVED'
+          : updates.status === 'rejected'
+            ? 'ANTRAG_REJECTED'
+            : 'ANTRAG_EDITED';
+      const actDetail =
+        updates.status === 'approved'
+          ? `Antrag "${(updatedObj as SipAntrag).title}" bestätigt & freigegeben`
+          : updates.status === 'rejected'
+            ? `Antrag "${(updatedObj as SipAntrag).title}" abgelehnt`
+            : `Antrag "${(updatedObj as SipAntrag).title}" redaktionell bearbeitet`;
 
       this.logActivity({
         action: actAction,
@@ -1856,7 +1933,10 @@ class SipRealtimeService {
       };
       this.broadcastMessage(msg, settings);
     }
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async deleteAntrag(antragId: string, settings?: AppSettings) {
@@ -1877,9 +1957,7 @@ class SipRealtimeService {
       ...this.currentSession,
       antraege: this.currentSession.antraege.filter((a) => a.id !== antragId),
       activeAntragId:
-        this.currentSession.activeAntragId === antragId
-          ? null
-          : this.currentSession.activeAntragId,
+        this.currentSession.activeAntragId === antragId ? null : this.currentSession.activeAntragId,
       updatedAt: this.nextTimestamp(),
     };
     this.saveToStorage();
@@ -1890,7 +1968,10 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async archiveAndClearCurrentSession(settings?: AppSettings): Promise<void> {
@@ -1934,8 +2015,15 @@ class SipRealtimeService {
     };
     this.broadcastMessage(stateSyncMsg, settings);
 
-    await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await archiveCurrentSession(
+      oldSession,
+      'Strategieführung',
+      settings || this.cachedSettings || undefined,
+    );
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async startNewSession(
@@ -1948,7 +2036,7 @@ class SipRealtimeService {
       strategyNotes?: string;
       uploadedDocuments?: SipUploadedDocument[];
     },
-    settings?: AppSettings
+    settings?: AppSettings,
   ): Promise<void> {
     this.lastLocalMutationAt = Date.now();
     this.deletedAntragIds.clear();
@@ -2006,16 +2094,26 @@ class SipRealtimeService {
     };
     this.broadcastMessage(stateSyncMsg, settings);
 
-    if (!options.skipArchive && (oldSession.antraege.length > 0 || (oldSession.activityLog || []).length > 1)) {
-      await archiveCurrentSession(oldSession, 'Strategieführung', settings || this.cachedSettings || undefined);
+    if (
+      !options.skipArchive &&
+      (oldSession.antraege.length > 0 || (oldSession.activityLog || []).length > 1)
+    ) {
+      await archiveCurrentSession(
+        oldSession,
+        'Strategieführung',
+        settings || this.cachedSettings || undefined,
+      );
     }
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async importCombinedAntraegeAndStrategy(
     antraege: SipAntrag[],
     strategyNotes?: string,
-    settings?: AppSettings
+    settings?: AppSettings,
   ): Promise<void> {
     this.lastLocalMutationAt = Date.now();
     this.deletedAntragIds.clear();
@@ -2037,7 +2135,7 @@ class SipRealtimeService {
         'Nebenanträge:',
         nebenantraege.length,
         'Gesamt:',
-        finalMotions.length
+        finalMotions.length,
       );
     }
 
@@ -2074,7 +2172,10 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(stateSyncMsg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async deleteMeme(memeId: string, settings?: AppSettings) {
@@ -2092,7 +2193,10 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async importAntraege(newAntraege: SipAntrag[], settings?: AppSettings) {
@@ -2114,7 +2218,7 @@ class SipRealtimeService {
         'Nebenanträge:',
         nebenantraege.length,
         'Gesamt:',
-        finalMotions.length
+        finalMotions.length,
       );
     }
 
@@ -2135,7 +2239,10 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async updateStrategyNotes(notes: string, settings?: AppSettings) {
@@ -2148,12 +2255,15 @@ class SipRealtimeService {
     this.saveToStorage();
     this.notify();
 
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async updateSessionMetadata(
     metadata: { title?: string; driveFolderUrl?: string },
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     this.currentSession = {
@@ -2169,13 +2279,13 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
-  public async updateUploadedDocuments(
-    docs: SipUploadedDocument[],
-    settings?: AppSettings
-  ) {
+  public async updateUploadedDocuments(docs: SipUploadedDocument[], settings?: AppSettings) {
     this.lastLocalMutationAt = Date.now();
     this.currentSession = {
       ...this.currentSession,
@@ -2190,12 +2300,15 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async addMeme(
     memeData: { author: string; imageUrl: string; caption: string },
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     const ts = this.nextTimestamp();
@@ -2221,14 +2334,17 @@ class SipRealtimeService {
       meme: newMeme,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
   public async toggleMemeReaction(
     memeId: string,
     emoji: string,
     userName: string,
-    settings?: AppSettings
+    settings?: AppSettings,
   ) {
     this.lastLocalMutationAt = Date.now();
     this.currentSession = {
@@ -2261,10 +2377,16 @@ class SipRealtimeService {
       session: this.currentSession,
     };
     this.broadcastMessage(msg, settings);
-    await this.syncSessionToSupabase(settings || this.cachedSettings || undefined, this.currentSession);
+    await this.syncSessionToSupabase(
+      settings || this.cachedSettings || undefined,
+      this.currentSession,
+    );
   }
 
-  public async fetchFromPocketBase(_settings?: AppSettings, forceOverwrite = false): Promise<SipSession | null> {
+  public async fetchFromPocketBase(
+    _settings?: AppSettings,
+    forceOverwrite = false,
+  ): Promise<SipSession | null> {
     if (
       this.isSyncingToSupabase ||
       this.isSyncingLiveOverlay ||
@@ -2292,11 +2414,7 @@ class SipRealtimeService {
         !Boolean(localStorage.getItem(SIP_PENDING_SESSION_SYNC_KEY)) &&
         Date.now() - this.lastLocalMutationAt >= 1500
       ) {
-        this.applyLiveOverlay(
-          liveRecord.payload as SipLiveStateOverlay,
-          liveRecord.updated,
-          true
-        );
+        this.applyLiveOverlay(liveRecord.payload as SipLiveStateOverlay, liveRecord.updated, true);
       }
     } catch (liveFetchErr) {
       // Falls siplivestate000 noch nicht existiert, fahren wir mit currentsession0 fort
@@ -2392,7 +2510,10 @@ class SipRealtimeService {
     return null;
   }
 
-  public async fetchFromSupabase(settings?: AppSettings, forceOverwrite = false): Promise<SipSession | null> {
+  public async fetchFromSupabase(
+    settings?: AppSettings,
+    forceOverwrite = false,
+  ): Promise<SipSession | null> {
     return this.fetchFromPocketBase(settings, forceOverwrite);
   }
 
@@ -2555,7 +2676,10 @@ class SipRealtimeService {
     }
   }
 
-  public async syncSessionToPocketBase(_settings?: AppSettings, session?: SipSession): Promise<void> {
+  public async syncSessionToPocketBase(
+    _settings?: AppSettings,
+    session?: SipSession,
+  ): Promise<void> {
     const targetSession = session || this.currentSession;
     this.lastLocalMutationAt = Date.now();
 

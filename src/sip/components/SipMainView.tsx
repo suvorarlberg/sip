@@ -68,6 +68,7 @@ interface PastAntragCardProps {
   subAntraege: SipAntrag[];
   canEditResults: boolean;
   onSetResult: (antragId: string, result: 'ANGENOMMEN' | 'ABGELEHNT') => void;
+  onRestore: (antragId: string) => void;
 }
 
 export const PastAntragCard: React.FC<PastAntragCardProps> = ({
@@ -75,6 +76,7 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
   subAntraege,
   canEditResults,
   onSetResult,
+  onRestore,
 }) => {
   const [showForderungen, setShowForderungen] = useState(false);
   const [showText, setShowText] = useState(false);
@@ -130,6 +132,13 @@ export const PastAntragCard: React.FC<PastAntragCardProps> = ({
                   className="rounded-lg border border-rose-500/40 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-500/20"
                 >
                   Abgelehnt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRestore(hauptAntrag.id)}
+                  className="rounded-lg border border-sky-500/40 px-2 py-1 text-[10px] font-bold text-sky-300 hover:bg-sky-500/20"
+                >
+                  Zurück zu offenen Anträgen
                 </button>
               </div>
             )}
@@ -782,7 +791,11 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   }, [activeAntrag, session.antraege, isStrategieLeader, currentUserName, decisionNow]);
 
   const unfinishedSubAntraege = activeSubAntraege.filter(
-    (antrag) => antrag.type !== 'WM' && antrag.status === 'approved' && !antrag.plenumResult,
+    (antrag) =>
+      antrag.type !== 'WM' &&
+      antrag.status === 'approved' &&
+      !antrag.plenumResult &&
+      !antrag.notCalled,
   );
 
   const visibleSubAntraege = useMemo(() => {
@@ -851,7 +864,13 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
   }
 
   function handleDecideAntrag(antragId: string, decision: 'ANGENOMMEN' | 'ABGELEHNT') {
-    if (antragId === activeAntrag?.id && unfinishedSubAntraege.length > 0) return;
+    if (antragId === activeAntrag?.id && unfinishedSubAntraege.length > 0) {
+      alert(
+        `Die Abstimmung ist noch nicht möglich. ${unfinishedSubAntraege.length} Nebenantrag/-anträge müssen zuerst abgestimmt oder als „Nicht aufgerufen“ markiert werden.`,
+      );
+      return;
+    }
+
     sipRealtime.decideAntrag(antragId, decision, settings);
   }
 
@@ -980,6 +999,41 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
     await sipRealtime.clearActiveDirectMessage(settings);
   }
 
+  async function handleRestoreHauptAntrag(antragId: string) {
+    const subAntraege = session.antraege.filter(
+      (antrag) => antrag.parentAntragId === antragId && antrag.type !== 'HAUPTANTRAG',
+    );
+
+    const resetSubAntraege =
+      subAntraege.length > 0 &&
+      window.confirm(
+        `Sollen auch die ${subAntraege.length} zugehörigen Nebenanträge zurückgesetzt werden?\n\n` +
+          '„OK“ setzt Abstimmungsergebnisse und „Nicht aufgerufen“-Status zurück. ' +
+          '„Abbrechen“ stellt nur den Hauptantrag wieder her.',
+      );
+
+    if (resetSubAntraege) {
+      for (const subAntrag of subAntraege) {
+        await sipRealtime.updateOrApproveAntrag(
+          subAntrag.id,
+          {
+            plenumResult: null,
+            plenumResultAt: null,
+            notCalled: false,
+          },
+          settings,
+        );
+      }
+    }
+
+    await sipRealtime.updateOrApproveAntrag(
+      antragId,
+      { plenumResult: null, plenumResultAt: null, isActive: false },
+      settings,
+    );
+
+    setCurrentSubTab('antraege');
+  }
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 space-y-6">
       {/* Toast Notification for Claims / Recommendations / Submissions */}
@@ -1689,7 +1743,6 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                               <>
                                 <button
                                   type="button"
-                                  disabled={unfinishedSubAntraege.length > 0}
                                   onClick={() => handleDecideAntrag(activeAntrag.id, 'ANGENOMMEN')}
                                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
                                 >
@@ -1699,7 +1752,6 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
 
                                 <button
                                   type="button"
-                                  disabled={unfinishedSubAntraege.length > 0}
                                   onClick={() => handleDecideAntrag(activeAntrag.id, 'ABGELEHNT')}
                                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs"
                                 >
@@ -1944,7 +1996,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                                   antrag.status === 'approved' &&
                                   antrag.type !== 'WM' && (
                                     <div className="mt-2 flex items-center justify-end gap-2">
-                                      {!antrag.plenumResult ? (
+                                      {!antrag.plenumResult && !antrag.notCalled ? (
                                         <>
                                           <button
                                             type="button"
@@ -1964,7 +2016,24 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                                           >
                                             Abgelehnt
                                           </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void sipRealtime.updateOrApproveAntrag(
+                                                antrag.id,
+                                                { notCalled: true },
+                                                settings,
+                                              )
+                                            }
+                                            className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-700"
+                                          >
+                                            Nicht aufgerufen
+                                          </button>
                                         </>
+                                      ) : antrag.notCalled ? (
+                                        <span className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold text-slate-300">
+                                          Nicht aufgerufen
+                                        </span>
                                       ) : !antrag.plenumResultAt ? (
                                         <button
                                           type="button"
@@ -2624,6 +2693,7 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                         onSetResult={(id, result) =>
                           sipRealtime.updateOrApproveAntrag(id, { plenumResult: result }, settings)
                         }
+                        onRestore={handleRestoreHauptAntrag}
                       />
                     );
                   })}
@@ -2677,7 +2747,9 @@ export const SipMainView: React.FC<SipMainViewProps> = ({
                     Keine Geschäftsordnung hinterlegt
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-                    Für diese Sitzung wurde noch keine Geschäftsordnung hochgeladen. Die Strategieführung kann beim Starten einer neuen Sitzung im Archiv-Reiter eine GO-PDF bereitstellen.
+                    Für diese Sitzung wurde noch keine Geschäftsordnung hochgeladen. Die
+                    Strategieführung kann beim Starten einer neuen Sitzung im Archiv-Reiter eine
+                    GO-PDF bereitstellen.
                   </p>
                 </div>
               )}

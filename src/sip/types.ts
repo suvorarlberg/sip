@@ -43,6 +43,7 @@ export interface SipAntrag {
   createdAt: string;
   approvedAt?: string;
   adminNotes?: string;
+  notCalled?: boolean;
   plenumResult?: 'ANGENOMMEN' | 'ABGELEHNT' | null;
   plenumResultAt?: string | null;
 }
